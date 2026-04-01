@@ -61,9 +61,11 @@ async def get_trending_legacy(
 
 @router.post("/watchlist", tags=["watchlist"])
 async def add_to_watchlist(
-    request: AddToListRequest, get_movie_service: Movies = Depends(movie_service)
+    request: AddToListRequest,
+    content_type: str = "movie",
+    get_movie_service: Movies = Depends(movie_service),
 ):
-    response = await get_movie_service.add_to_watchlist(request.imdb_id)
+    response = await get_movie_service.add_to_watchlist(request.imdb_id, content_type)
     return response
 
 
@@ -80,9 +82,11 @@ async def add_to_watching_list(
 
 @router.post("/completed", tags=["completed"])
 async def add_to_completed(
-    request: AddToListRequest, get_movie_service: Movies = Depends(movie_service)
+    request: AddToListRequest,
+    content_type: str = "movie",
+    get_movie_service: Movies = Depends(movie_service),
 ):
-    response = await get_movie_service.add_to_completed(request.imdb_id)
+    response = await get_movie_service.add_to_completed(request.imdb_id, content_type)
     return response
 
 

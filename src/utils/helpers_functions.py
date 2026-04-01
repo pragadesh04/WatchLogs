@@ -21,18 +21,44 @@ class HelperFunctions:
         }
         return new_data
 
+    async def format_tmdb_data(self, data: dict) -> dict:
+        media_type = data.get('media_type')
+        new_data = {
+            "name": data.get("name") if media_type == "tv" else data.get("title"),
+            "overview": data.get("overview"),
+            "poster_link": f"https://image.tmdb.org/t/p/original/{data.get('poster_path')}",
+            "id": data.get("id"),
+            "content_type": media_type,
+        }
+        return new_data
+
     async def format_tmdb_datas(self, datas: list) -> list:
         new_data = []
         for data in datas:
-            media_type = data.get('media_type')
-            temp_data = {
-                "name": data.get("name") if media_type == 'tv' else data.get('title'),
-                "overview": data.get("overview"),
-                "poster_link" : f"https://image.tmdb.org/t/p/original/{data.get('poster_path')}",
-                "id": data.get("id"),
-                'content_type': media_type
-            }
-            new_data.append(temp_data)
+            new_data.append(await self.format_tmdb_data(data))
+        return new_data
+        
+
+    async def format_tmdb_details(
+        self, data: dict, content_type: str = "movie"
+    ) -> dict:
+        runtime_minutes = data.get("runtime") or (
+            data.get("episode_run_time", [0])[0] if data.get("episode_run_time") else 0
+        )
+
+        new_data = {
+            "imdb_id": data.get("imdb_id"),
+            "Title": data.get("name"),
+            "Poster": f"https://image.tmdb.org/t/p/original/{data.get('poster_path')}"
+            if data.get("poster_path")
+            else None,
+            "Runtime": f"{runtime_minutes // 60} Hours {runtime_minutes % 60} Minutes"
+            if runtime_minutes
+            else "N/A",
+            "Type": content_type,
+            "overview": data.get("overview"),
+            "backdrop_path": data.get("backdrop_path"),
+        }
         return new_data
 
     async def serializer(self, data: dict) -> dict:

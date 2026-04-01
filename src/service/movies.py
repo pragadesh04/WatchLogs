@@ -23,14 +23,33 @@ CACHE_DURATION_HOURS = 12
 class Movies:
     def __init__(self):
         self.headers = {"Authorization": f"Bearer {config.TMDB_API}"}
-
+    @retry(
+        stop=stop_after_delay(15),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(httpx.ConnectError),
+    )
     async def search_by_name(self, q: str) -> list:
-        url = config.OMDB_URL
-        params = {"apikey": config.OMDB_API, "s": q, "plot": "full"}
+        url = config.TMDB_URL
+
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"{url}", params=params)
-            datas = res.json()
-            return datas
+            movie_res = await client.get(
+                f"{url}search/movie", params={"query": q}, headers=self.headers
+            )
+            tv_res = await client.get(
+                f"{url}search/tv", params={"query": q}, headers=self.headers
+            )
+
+            movie_results = movie_res.json().get("results", [])
+            tv_results = tv_res.json().get("results", [])
+
+            for item in movie_results:
+                item["media_type"] = "movie"
+            for item in tv_results:
+                item["media_type"] = "tv"
+
+            combined = movie_results + tv_results
+            combined = await helpers.format_tmdb_datas(combined)
+            return combined
 
     @retry(
         stop=stop_after_delay(15),
@@ -49,29 +68,38 @@ class Movies:
             datas = res.json()
             return datas
 
-    async def search_by_id(self, id: str) -> list:
-        url = config.OMDB_URL
-        params = {"apikey": config.OMDB_API, "i": id, "plot": "short"}
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{url}", params=params)
-            datas = res.json()
-            return datas
+    @retry(
+        stop=stop_after_delay(15),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(httpx.ConnectError),
+    )
+    async def search_by_id(self, imdb_id: str, content_type: str = "movie") -> dict:
+        url = config.TMDB_URL
 
-    async def add_to_watchlist(self, id: str) -> dict:
-        datas = await self.search_by_id(id)
-        new_data = await helpers.format_movie(datas)
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{url}find/{imdb_id}?external_source=imdb_id", headers=self.headers)
+            data = await helpers.format_tmdb_data((res.json()).get('movie_results', [])[0])
+
+            return data
+
+    async def add_to_watchlist(self, imdb_id: str, content_type: str = "movie") -> dict:
+        new_data = await self.search_by_id(imdb_id, content_type)
 
         if new_data:
             try:
-                exists_watching = await helpers.check_id_exists(id, "watching_list")
-                exists_watchlist = await helpers.check_id_exists(id, "watch_list")
-                exists_completed = await helpers.check_id_exists(id, "completed")
+                exists_watching = await helpers.check_id_exists(
+                    imdb_id, "watching_list"
+                )
+                exists_watchlist = await helpers.check_id_exists(imdb_id, "watch_list")
+                exists_completed = await helpers.check_id_exists(imdb_id, "completed")
 
                 if (
                     not exists_watching
                     and not exists_watchlist
                     and not exists_completed
                 ):
+                    new_data["imdb_id"] = imdb_id
+                    new_data["content_type"] = content_type
                     result = database.watch_list.insert_one(new_data)
                     return {
                         "status": "Successful",
@@ -85,14 +113,13 @@ class Movies:
                 raise e
 
     async def add_to_watching_list(
-        self, id: str, data: dict, content_type: str = "movie"
+        self, imdb_id: str, data: dict, content_type: str = "movie"
     ) -> dict:
-        datas = await self.search_by_id(id)
-        new_data = await helpers.format_movie(datas)
+        new_data = await self.search_by_id(imdb_id, content_type)
 
         data = dict(data)
 
-        if content_type == "series":
+        if content_type == "series" or content_type == "tv":
             data["time_stamp"] = f"S{data.get('season', 1)}E{data.get('episode', 1)}"
             data["current_season"] = data.get("season", 1)
             data["current_episode"] = data.get("episode", 1)
@@ -103,11 +130,15 @@ class Movies:
 
         if new_data and data:
             data = {**new_data, **data}
+            data["movie_id"] = imdb_id
+            data["content_type"] = content_type
 
             try:
-                exists_watching = await helpers.check_id_exists(id, "watching_list")
-                exists_watchlist = await helpers.check_id_exists(id, "watch_list")
-                exists_completed = await helpers.check_id_exists(id, "completed")
+                exists_watching = await helpers.check_id_exists(
+                    imdb_id, "watching_list"
+                )
+                exists_watchlist = await helpers.check_id_exists(imdb_id, "watch_list")
+                exists_completed = await helpers.check_id_exists(imdb_id, "completed")
 
                 if (
                     not exists_watching
@@ -126,22 +157,24 @@ class Movies:
             except Exception as e:
                 raise e
 
-    async def add_to_completed(self, id: str):
-        data = await self.search_by_id(id)
-        new_data = await helpers.format_movie(data)
+    async def add_to_completed(self, imdb_id: str, content_type: str = "movie"):
+        new_data = await self.search_by_id(imdb_id, content_type)
 
         try:
-            exists_watching = await helpers.check_id_exists(id, "watching_list")
-            exists_watchlist = await helpers.check_id_exists(id, "watch_list")
-            exists_completed = await helpers.check_id_exists(id, "completed")
+            exists_watching = await helpers.check_id_exists(imdb_id, "watching_list")
+            exists_watchlist = await helpers.check_id_exists(imdb_id, "watch_list")
+            exists_completed = await helpers.check_id_exists(imdb_id, "completed")
 
             if not exists_completed:
+                new_data["movie_id"] = imdb_id
+                new_data["content_type"] = content_type
+
                 if exists_watching:
-                    result = database.watching_list.delete_one({"imdb_id": id})
+                    result = database.watching_list.delete_one({"imdb_id": imdb_id})
                     logger.info(f"{result.deleted_count} deleted from watching list")
 
                 if exists_watchlist:
-                    result = database.watch_list.delete_one({"imdb_id": id})
+                    result = database.watch_list.delete_one({"imdb_id": imdb_id})
                     logger.info(f"{result.deleted_count} deleted from watchlist")
 
                 result = database.completed.insert_one(new_data)
