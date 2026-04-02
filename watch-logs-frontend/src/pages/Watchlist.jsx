@@ -1,15 +1,46 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchWatchlist, getDetails } from '../services/api';
+import { fetchWatchlist, deleteFromWatchlist } from '../services/api';
+import { useSettingsStore, getGridCols } from '../stores/settingsStore';
+import { useStatsStore } from '../stores/statsStore';
+import { SkeletonGrid } from '../components/SkeletonCard';
 
 export default function Watchlist() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [overview, setOverview] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { gridSize } = useSettingsStore();
+  const { incrementWatched } = useStatsStore();
+  const lastY = useRef(0);
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const handleTouchStart = (e) => {
+      lastY.current = e.touches[0].clientY;
+    };
+    
+    const handleTouchMove = async (e) => {
+      const currentY = e.touches[0].clientY;
+      const diff = lastY.current - currentY;
+      
+      if (diff > 50 && window.scrollY < 50) {
+        setIsRefreshing(true);
+        await loadData();
+        setIsRefreshing(false);
+      }
+    };
+    
+    window.addEventListener('touchstart', handleTouchStart);
+    window.addEventListener('touchmove', handleTouchMove);
+    
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+    };
   }, []);
 
   const loadData = async () => {
@@ -22,21 +53,26 @@ export default function Watchlist() {
     setLoading(false);
   };
 
-  const handleItemClick = async (item) => {
+  const handleItemClick = (item) => {
+    setSelectedItem(item);
+  };
+
+  const handleDelete = async (e, imdbId) => {
+    e.stopPropagation();
     try {
-      const contentType = item.content_type || 'movie';
-      const res = await getDetails(item.movie_id, contentType);
-      setOverview(res.data.overview || 'No overview available.');
-      setSelectedItem(item);
+      await deleteFromWatchlist(imdbId);
+      setItems(items.filter(item => item.imdb_id !== imdbId));
+      setSelectedItem(null);
     } catch (err) {
-      console.error('Failed to fetch details:', err);
+      console.error('Failed to delete:', err);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-xl">Loading...</div>
+      <div className="pb-20 px-4 py-6">
+        <div className="h-8 w-32 bg-gray-800 rounded mb-6 animate-pulse" />
+        <SkeletonGrid count={10} gridCols={getGridCols(gridSize)} />
       </div>
     );
   }
@@ -62,7 +98,7 @@ export default function Watchlist() {
   return (
     <div className="pb-20 px-4 py-6">
       <h1 className="text-2xl font-bold mb-6">Watchlist</h1>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      <div className={`grid ${getGridCols(gridSize)} gap-4`}>
         {items.map((item) => (
           <div 
             key={item.id}
@@ -101,13 +137,21 @@ export default function Watchlist() {
                 </p>
               </div>
             </div>
-            <p className="text-gray-300 leading-relaxed">{overview}</p>
-            <button 
-              onClick={() => setSelectedItem(null)}
-              className="w-full mt-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-            >
-              Close
-            </button>
+            <p className="text-gray-300 leading-relaxed">{selectedItem.overview || 'No overview available.'}</p>
+            <div className="flex gap-3 mt-6">
+              <button 
+                onClick={() => setSelectedItem(null)}
+                className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+              >
+                Close
+              </button>
+              <button 
+                onClick={(e) => handleDelete(e, selectedItem.imdb_id)}
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+              >
+                Remove
+              </button>
+            </div>
           </div>
         </div>
       )}

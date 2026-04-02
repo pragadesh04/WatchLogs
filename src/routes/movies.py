@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Depends
 
-from ..utils.schemas import WatchingEntry, AddToListRequest, UpdateProgressRequest
+from ..utils.schemas import (
+    WatchingEntry,
+    AddToListRequest,
+    UpdateProgressRequest,
+    ShareListRequest,
+)
 from ..service.movies import Movies
 
 router = APIRouter(prefix="/movies")
@@ -91,20 +96,59 @@ async def add_to_completed(
 
 
 @router.get("/watchlist", tags=["list"])
-async def fetch_watchlist(get_movie_service: Movies = Depends(movie_service)):
-    response = await get_movie_service.fetch_watchlist()
+async def fetch_watchlist(
+    sort_by: str = "date_added",
+    order: str = "desc",
+    content_type: str = None,
+    get_movie_service: Movies = Depends(movie_service),
+):
+    response = await get_movie_service.fetch_watchlist(sort_by, order, content_type)
     return response
 
 
 @router.get("/watching", tags=["list"])
-async def fetch_watching_list(get_movie_service: Movies = Depends(movie_service)):
-    response = await get_movie_service.fetch_watching_list()
+async def fetch_watching_list(
+    sort_by: str = "date_added",
+    order: str = "desc",
+    content_type: str = None,
+    get_movie_service: Movies = Depends(movie_service),
+):
+    response = await get_movie_service.fetch_watching_list(sort_by, order, content_type)
     return response
 
 
 @router.get("/completed", tags=["list"])
-async def fetch_completed(get_movie_service: Movies = Depends(movie_service)):
-    response = await get_movie_service.fetch_completed()
+async def fetch_completed(
+    sort_by: str = "date_added",
+    order: str = "desc",
+    content_type: str = None,
+    get_movie_service: Movies = Depends(movie_service),
+):
+    response = await get_movie_service.fetch_completed(sort_by, order, content_type)
+    return response
+
+
+@router.delete("/watchlist/{imdb_id}", tags=["list"])
+async def remove_from_watchlist(
+    imdb_id: str, get_movie_service: Movies = Depends(movie_service)
+):
+    response = await get_movie_service.remove_from_watchlist(imdb_id)
+    return response
+
+
+@router.delete("/watching/{imdb_id}", tags=["list"])
+async def remove_from_watching(
+    imdb_id: str, get_movie_service: Movies = Depends(movie_service)
+):
+    response = await get_movie_service.remove_from_watching(imdb_id)
+    return response
+
+
+@router.delete("/completed/{imdb_id}", tags=["list"])
+async def remove_from_completed(
+    imdb_id: str, get_movie_service: Movies = Depends(movie_service)
+):
+    response = await get_movie_service.remove_from_completed(imdb_id)
     return response
 
 
@@ -141,3 +185,21 @@ async def get_imdb_overview(
 ):
     response = await get_movie_service.get_details_overview(movie_id, content_type)
     return {"response": response}
+
+
+@router.post("/share/create", tags=["share"])
+async def create_shared_list(
+    request: ShareListRequest, get_movie_service: Movies = Depends(movie_service)
+):
+    response = await get_movie_service.create_shared_list(
+        request.list_types, request.expiration_days
+    )
+    return response
+
+
+@router.get("/share/{code}", tags=["share"])
+async def get_shared_list(
+    code: str, get_movie_service: Movies = Depends(movie_service)
+):
+    response = await get_movie_service.get_shared_list(code)
+    return response

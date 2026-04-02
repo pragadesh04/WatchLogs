@@ -58,6 +58,9 @@ class HelperFunctions:
             "Type": content_type,
             "overview": data.get("overview"),
             "backdrop_path": data.get("backdrop_path"),
+            "is_released": True
+            if data.get('status') == 'Released'
+            else False
         }
         return new_data
 

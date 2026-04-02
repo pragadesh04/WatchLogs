@@ -9,7 +9,6 @@ const api = axios.create({
 export const getTrendingMovies = () => api.get('/get-trending/movie');
 export const getTrendingTV = () => api.get('/get-trending/tv');
 export const searchByName = (q) => api.get(`/search?q=${encodeURIComponent(q)}`);
-export const getDetails = (movieId, contentType) => api.get(`/get-details/${movieId}/${contentType}`);
 export const getImdbId = (movieId, contentType) => api.get(`/get-imdb-id/${movieId}/${contentType}`);
 
 export const addToWatchlist = (imdbId, contentType = 'movie') => 
@@ -23,7 +22,16 @@ export const fetchWatchlist = () => api.get('/watchlist');
 export const fetchWatching = () => api.get('/watching');
 export const fetchCompleted = () => api.get('/completed');
 
+export const deleteFromWatchlist = (imdbId) => api.delete(`/watchlist/${imdbId}`);
+export const deleteFromWatching = (imdbId) => api.delete(`/watching/${imdbId}`);
+export const deleteFromCompleted = (imdbId) => api.delete(`/completed/${imdbId}`);
+
 export const updateProgress = (imdbId, data) => 
   api.patch(`/watching/${imdbId}/progress`, data);
+
+export const createSharedList = (listTypes, expirationDays = null) => 
+  api.post('/share/create', { list_types: listTypes, expiration_days: expirationDays });
+
+export const getSharedList = (code) => api.get(`/share/${code}`);
 
 export default api;

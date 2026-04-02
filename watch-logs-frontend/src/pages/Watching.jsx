@@ -1,43 +1,67 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchWatching, getDetails, updateProgress } from '../services/api';
+import { fetchWatching, updateProgress, deleteFromWatching } from '../services/api';
+import { useSettingsStore, getGridCols } from '../stores/settingsStore';
+import { useStatsStore } from '../stores/statsStore';
+import { SkeletonGrid } from '../components/SkeletonCard';
 
 export default function Watching() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [overview, setOverview] = useState('');
   const [progress, setProgress] = useState({ minutes: '', season: '', episode: '' });
   const [updating, setUpdating] = useState(false);
+  const { gridSize } = useSettingsStore();
+  const { updateFromLists } = useStatsStore();
+  const lastY = useRef(0);
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const handleTouchStart = (e) => {
+      lastY.current = e.touches[0].clientY;
+    };
+    
+    const handleTouchMove = async (e) => {
+      const currentY = e.touches[0].clientY;
+      const diff = lastY.current - currentY;
+      
+      if (diff > 50 && window.scrollY < 50) {
+        setLoading(true);
+        await loadData();
+        setLoading(false);
+      }
+    };
+    
+    window.addEventListener('touchstart', handleTouchStart);
+    window.addEventListener('touchmove', handleTouchMove);
+    
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+    };
   }, []);
 
   const loadData = async () => {
     try {
       const res = await fetchWatching();
       setItems(res.data || []);
+      updateFromLists([], res.data || [], []);
     } catch (err) {
       console.error('Failed to fetch watching:', err);
     }
     setLoading(false);
   };
 
-  const handleItemClick = async (item) => {
-    try {
-      const contentType = item.content_type || item.type || 'movie';
-      const res = await getDetails(item.movie_id, contentType);
-      setOverview(res.data.overview || 'No overview available.');
-      setSelectedItem({ ...item, content_type: contentType });
-      setProgress({ 
-        minutes: item.time_stamp || '', 
-        season: '', 
-        episode: '' 
-      });
-    } catch (err) {
-      console.error('Failed to fetch details:', err);
-    }
+  const handleItemClick = (item) => {
+    setSelectedItem(item);
+    setProgress({ 
+      minutes: item.time_stamp || '', 
+      season: '', 
+      episode: '' 
+    });
   };
 
   const handleUpdateProgress = async () => {
@@ -50,7 +74,11 @@ export default function Watching() {
       } else {
         if (progress.minutes) data.minutes = parseInt(progress.minutes);
       }
+
+      console.log(selectedItem);
+      console.log(selectedItem.imdb_id);
       await updateProgress(selectedItem.imdb_id, data);
+      
       loadData();
       setSelectedItem(null);
     } catch (err) {
@@ -59,10 +87,22 @@ export default function Watching() {
     setUpdating(false);
   };
 
+  const handleDelete = async (e, imdbId) => {
+    e.stopPropagation();
+    try {
+      await deleteFromWatching(imdbId);
+      setItems(items.filter(item => item.imdb_id !== imdbId));
+      setSelectedItem(null);
+    } catch (err) {
+      console.error('Failed to delete:', err);
+    }
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-xl">Loading...</div>
+      <div className="pb-20 px-4 py-6">
+        <div className="h-8 w-40 bg-gray-800 rounded mb-6 animate-pulse" />
+        <SkeletonGrid count={10} gridCols={getGridCols(gridSize)} />
       </div>
     );
   }
@@ -88,7 +128,7 @@ export default function Watching() {
   return (
     <div className="pb-20 px-4 py-6">
       <h1 className="text-2xl font-bold mb-6">Currently Watching</h1>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      <div className={`grid ${getGridCols(gridSize)} gap-4`}>
         {items.map((item) => (
           <div 
             key={item.id}
@@ -136,7 +176,7 @@ export default function Watching() {
               </div>
             </div>
             
-            <p className="text-gray-300 mb-4">{overview}</p>
+            <p className="text-gray-300 mb-4">{selectedItem.overview || 'No overview available.'}</p>
             
             <div className="bg-gray-800 rounded-lg p-4 mb-4">
               <h3 className="text-sm font-semibold mb-3">Update Progress</h3>
@@ -183,9 +223,15 @@ export default function Watching() {
             <button 
               onClick={handleUpdateProgress}
               disabled={updating}
-              className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50"
+              className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 mb-3"
             >
               {updating ? 'Saving...' : 'Save Progress'}
+            </button>
+            <button 
+              onClick={(e) => handleDelete(e, selectedItem.imdb_id)}
+              className="w-full py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            >
+              Remove
             </button>
           </div>
         </div>

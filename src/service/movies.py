@@ -6,6 +6,7 @@ from tenacity import (
 )
 import httpx
 import logging
+import secrets
 from datetime import datetime, timedelta
 
 from ..utils.helpers_functions import HelperFunctions
@@ -23,6 +24,7 @@ CACHE_DURATION_HOURS = 12
 class Movies:
     def __init__(self):
         self.headers = {"Authorization": f"Bearer {config.TMDB_API}"}
+
     @retry(
         stop=stop_after_delay(15),
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -77,8 +79,12 @@ class Movies:
         url = config.TMDB_URL
 
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"{url}find/{imdb_id}?external_source=imdb_id", headers=self.headers)
-            data = await helpers.format_tmdb_data((res.json()).get('movie_results', [])[0])
+            res = await client.get(
+                f"{url}find/{imdb_id}?external_source=imdb_id", headers=self.headers
+            )
+            data = await helpers.format_tmdb_data(
+                (res.json()).get("movie_results", [])[0]
+            )
 
             return data
 
@@ -117,6 +123,9 @@ class Movies:
     ) -> dict:
         new_data = await self.search_by_id(imdb_id, content_type)
 
+        if new_data.get("status", False):
+            return {"status": "Failed", "message": "Movie not yet released"}
+
         data = dict(data)
 
         if content_type == "series" or content_type == "tv":
@@ -130,7 +139,7 @@ class Movies:
 
         if new_data and data:
             data = {**new_data, **data}
-            data["movie_id"] = imdb_id
+            data["imdb_id"] = imdb_id
             data["content_type"] = content_type
 
             try:
@@ -160,13 +169,16 @@ class Movies:
     async def add_to_completed(self, imdb_id: str, content_type: str = "movie"):
         new_data = await self.search_by_id(imdb_id, content_type)
 
+        if new_data.get("status", False):
+            return {"status": "Failed", "message": "Movie not yet released"}
+
         try:
             exists_watching = await helpers.check_id_exists(imdb_id, "watching_list")
             exists_watchlist = await helpers.check_id_exists(imdb_id, "watch_list")
             exists_completed = await helpers.check_id_exists(imdb_id, "completed")
 
             if not exists_completed:
-                new_data["movie_id"] = imdb_id
+                new_data["imdb_id"] = imdb_id
                 new_data["content_type"] = content_type
 
                 if exists_watching:
@@ -189,38 +201,124 @@ class Movies:
         except Exception as e:
             raise e
 
-    async def fetch_watchlist(self):
+    async def fetch_watchlist(
+        self, sort_by: str = "date_added", order: str = "desc", content_type: str = None
+    ):
         try:
-            datas = database.watch_list.find().to_list()
+            query = {}
+            if content_type:
+                query["content_type"] = content_type
+
+            sort_order = -1 if order == "desc" else 1
+            sort_field = "created_at"
+            if sort_by == "release_year":
+                sort_field = "release_date"
+            elif sort_by == "rating":
+                sort_field = "vote_average"
+
+            datas = (
+                database.watch_list.find(query).sort(sort_field, sort_order).to_list()
+            )
             formatted_data = await helpers.serializer_list(datas)
+            enriched_data = []
+            for item in formatted_data:
+                enriched = await self.enrich_item_data(item)
+                enriched_data.append(enriched)
             if datas:
-                return formatted_data
+                return enriched_data
             else:
                 return []
         except Exception as e:
             raise e
 
-    async def fetch_watching_list(self):
+    async def fetch_watching_list(
+        self, sort_by: str = "date_added", order: str = "desc", content_type: str = None
+    ):
         try:
-            datas = database.watching_list.find().to_list()
+            query = {}
+            if content_type:
+                query["content_type"] = content_type
+
+            sort_order = -1 if order == "desc" else 1
+            sort_field = "created_at"
+            if sort_by == "release_year":
+                sort_field = "release_date"
+            elif sort_by == "rating":
+                sort_field = "vote_average"
+
+            datas = (
+                database.watching_list.find(query)
+                .sort(sort_field, sort_order)
+                .to_list()
+            )
             formatted_data = await helpers.serializer_list(datas)
+            enriched_data = []
+            for item in formatted_data:
+                enriched = await self.enrich_item_data(item)
+                enriched_data.append(enriched)
 
             if datas:
-                return formatted_data
+                return enriched_data
             else:
                 return []
         except Exception as e:
             raise e
 
-    async def fetch_completed(self):
+    async def fetch_completed(
+        self, sort_by: str = "date_added", order: str = "desc", content_type: str = None
+    ):
         try:
-            datas = database.completed.find().to_list()
+            query = {}
+            if content_type:
+                query["content_type"] = content_type
+
+            sort_order = -1 if order == "desc" else 1
+            sort_field = "created_at"
+            if sort_by == "release_year":
+                sort_field = "release_date"
+            elif sort_by == "rating":
+                sort_field = "vote_average"
+
+            datas = (
+                database.completed.find(query).sort(sort_field, sort_order).to_list()
+            )
             formatted_data = await helpers.serializer_list(datas)
+            enriched_data = []
+            for item in formatted_data:
+                enriched = await self.enrich_item_data(item)
+                enriched_data.append(enriched)
 
             if datas:
-                return formatted_data
+                return enriched_data
             else:
                 return []
+        except Exception as e:
+            raise e
+
+    async def remove_from_watchlist(self, imdb_id: str):
+        try:
+            result = database.watch_list.delete_one({"imdb_id": imdb_id})
+            if result.deleted_count > 0:
+                return {"status": "success", "message": "Removed from watchlist"}
+            return {"status": "failed", "message": "Item not found in watchlist"}
+        except Exception as e:
+            raise e
+
+    async def remove_from_watching(self, imdb_id: str):
+        try:
+            result = database.watching_list.delete_one({"imdb_id": imdb_id})
+            if result.deleted_count > 0:
+                return {"status": "success", "message": "Removed from watching list"}
+            return {"status": "failed", "message": "Item not found in watching list"}
+        except Exception as e:
+            raise e
+
+    async def remove_from_completed(self, imdb_id: str):
+        try:
+            result = database.completed.delete_one({"imdb_id": imdb_id})
+            if result.deleted_count > 0:
+                return {"status": "success", "message": "Removed from completed"}
+            return {"status": "failed", "message": "Item not found in completed"}
         except Exception as e:
             raise e
 
@@ -391,4 +489,166 @@ class Movies:
                 data = response.json()
                 return data
         except httpx.ConnectError as e:
+            raise e
+
+    async def enrich_item_data(self, item: dict) -> dict:
+        try:
+            tmdb_id = item.get("id")
+            content_type = item.get("content_type") or item.get("Type")
+
+            if tmdb_id:
+                details = await self.get_details_overview(tmdb_id, content_type)
+
+                genres = [g["name"] for g in details.get("genres", [])]
+                runtime = details.get("runtime") or (
+                    details.get("episode_run_time", [0])[0]
+                    if details.get("episode_run_time")
+                    else 0
+                )
+                release_date = details.get("release_date") or details.get(
+                    "first_air_date"
+                )
+                vote_average = details.get("vote_average")
+                total_episodes = details.get("number_of_episodes")
+
+                item["genres"] = genres
+                item["total_runtime"] = runtime
+                item["release_date"] = release_date
+                item["vote_average"] = round(vote_average, 1) if vote_average else None
+                item["total_episodes"] = total_episodes
+
+                if content_type in ["series", "tv"]:
+                    current_season = item.get("current_season", 1)
+                    current_episode = item.get("current_episode", 1)
+                    item["watched_episodes"] = (
+                        current_season - 1
+                    ) * 10 + current_episode
+                else:
+                    watched_minutes = self._parse_watched_minutes(
+                        item.get("time_stamp")
+                    )
+                    item["watched_minutes"] = watched_minutes
+                    item["remaining_minutes"] = (
+                        max(0, runtime - watched_minutes) if runtime else None
+                    )
+            return item
+        except Exception as e:
+            logger.warning(f"Failed to enrich data for {item.get('imdb_id')}: {e}")
+            return item
+
+    def _parse_watched_minutes(self, time_stamp: str) -> int:
+        if not time_stamp:
+            return 0
+        if "Hours" in time_stamp or "Minutes" in time_stamp:
+            try:
+                hours = 0
+                minutes = 0
+                if "Hours" in time_stamp:
+                    hours_part = time_stamp.split("Hours")[0].strip()
+                    hours = int(hours_part) if hours_part.isdigit() else 0
+                if "Minutes" in time_stamp:
+                    if "Hours" in time_stamp:
+                        mins_part = (
+                            time_stamp.split("Minutes")[0].split("Hours")[-1].strip()
+                        )
+                    else:
+                        mins_part = time_stamp.split("Minutes")[0].strip()
+                    minutes = int(mins_part) if mins_part.isdigit() else 0
+                return hours * 60 + minutes
+            except:
+                return 0
+        return 0
+
+    async def create_shared_list(
+        self, list_types: list, expiration_days: int | None
+    ) -> dict:
+        try:
+            code = secrets.token_hex(4)
+
+            while database.shared_lists.find_one({"code": code}):
+                code = secrets.token_hex(4)
+
+            items = []
+            if "watchlist" in list_types:
+                watchlist = database.watch_list.find().to_list()
+                for item in watchlist:
+                    items.append(
+                        {
+                            "imdb_id": item.get("imdb_id"),
+                            "name": item.get("Title") or item.get("name"),
+                            "poster_url": item.get("poster_link") or item.get("Poster"),
+                            "content_type": item.get("content_type")
+                            or item.get("Type"),
+                            "overview": item.get("overview"),
+                            "list_type": "watchlist",
+                        }
+                    )
+
+            if "watching" in list_types:
+                watching = database.watching_list.find().to_list()
+                for item in watching:
+                    items.append(
+                        {
+                            "imdb_id": item.get("imdb_id"),
+                            "name": item.get("Title") or item.get("name"),
+                            "poster_url": item.get("poster_link") or item.get("Poster"),
+                            "content_type": item.get("content_type")
+                            or item.get("Type"),
+                            "overview": item.get("overview"),
+                            "list_type": "watching",
+                        }
+                    )
+
+            if "completed" in list_types:
+                completed = database.completed.find().to_list()
+                for item in completed:
+                    items.append(
+                        {
+                            "imdb_id": item.get("imdb_id"),
+                            "name": item.get("Title") or item.get("name"),
+                            "poster_url": item.get("poster_link") or item.get("Poster"),
+                            "content_type": item.get("content_type")
+                            or item.get("Type"),
+                            "overview": item.get("overview"),
+                            "list_type": "completed",
+                        }
+                    )
+
+            expires_at = None
+            if expiration_days:
+                expires_at = datetime.utcnow() + timedelta(days=expiration_days)
+
+            shared_data = {
+                "code": code,
+                "items": items,
+                "list_types": list_types,
+                "created_at": datetime.utcnow(),
+                "expires_at": expires_at,
+            }
+
+            result = database.shared_lists.insert_one(shared_data)
+            return {"status": "success", "code": code, "url": f"/shared/{code}"}
+        except Exception as e:
+            logger.error(f"Error creating shared list: {e}")
+            raise e
+
+    async def get_shared_list(self, code: str) -> dict:
+        try:
+            shared = database.shared_lists.find_one({"code": code})
+            if not shared:
+                return {"status": "failed", "message": "Shared list not found"}
+
+            if shared.get("expires_at") and shared["expires_at"] < datetime.utcnow():
+                database.shared_lists.delete_one({"code": code})
+                return {"status": "failed", "message": "This shared link has expired"}
+
+            return {
+                "status": "success",
+                "items": shared.get("items", []),
+                "list_types": shared.get("list_types", []),
+                "created_at": shared.get("created_at"),
+                "expires_at": shared.get("expires_at"),
+            }
+        except Exception as e:
+            logger.error(f"Error fetching shared list: {e}")
             raise e
