@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'https://watchlogger.onrender.com';
 
 const api = axios.create({
   baseURL: API_BASE,
