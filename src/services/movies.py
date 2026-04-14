@@ -23,14 +23,15 @@ logger = logging.getLogger(__name__)
 
 CACHE_DURATION_HOURS = 12
 
-
+ATTEMPT_TIMES = 16
+MAX_TIMES = 32
 class MoviesService:
     def __init__(self):
         self.headers = {"Authorization": f"Bearer {config.TMDB_API}"}
 
     @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
+        wait=wait_exponential(multiplier=1, min=2, max=MAX_TIMES),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
     async def search_by_name(self, q: str) -> list:
@@ -57,8 +58,8 @@ class MoviesService:
             return combined
 
     @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
+        wait=wait_exponential(multiplier=1, min=2, max=MAX_TIMES),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
     async def search_by_year(self, year: int = None, type_name: str = None) -> list:
@@ -74,8 +75,8 @@ class MoviesService:
             return datas
 
     @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
+        wait=wait_exponential(multiplier=1, min=2, max=MAX_TIMES),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
     async def search_by_id(self, imdb_id: str, content_type: str = "movie") -> dict:
@@ -96,7 +97,7 @@ class MoviesService:
                 raise e
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
         wait=wait_exponential(multiplier=1, min=2, max=5),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
@@ -115,7 +116,7 @@ class MoviesService:
             return results
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
         wait=wait_exponential(multiplier=1, min=1, max=3),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
@@ -131,7 +132,7 @@ class MoviesService:
             return data.get("imdb_id")
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
         wait=wait_exponential(multiplier=1, min=1, max=3),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
@@ -149,7 +150,7 @@ class MoviesService:
             raise e
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
         wait=wait_exponential(multiplier=1, min=1, max=3),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
@@ -195,7 +196,7 @@ class MoviesService:
             raise e
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
         wait=wait_exponential(multiplier=1, min=2, max=3),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
@@ -217,7 +218,7 @@ class MoviesService:
             raise e
 
     @retry(
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(ATTEMPT_TIMES),
         wait=wait_exponential(multiplier=1, min=1, max=3),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
