@@ -43,7 +43,7 @@ export const logout = () =>
 export const getTrendingMovies = () => api.get('/trending/movie');
 export const getTrendingTV = () => api.get('/trending/tv');
 export const searchByName = (q) => api.get(`/search?q=${encodeURIComponent(q)}`);
-export const getImdbId = (movieId, contentType) => api.get(`/get-imdb-id/${movieId}/${contentType}`);
+export const getImdbId = (movieId, contentType) => api.get(`/details/imdb-id/${movieId}/${contentType}`);
 
 export const addToWatchlist = (imdbId, contentType = 'movie') => 
   api.post(`/watchlist?content_type=${contentType}`, { imdb_id: imdbId });

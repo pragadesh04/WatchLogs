@@ -9,6 +9,7 @@ from passlib.context import CryptContext
 from core import config
 from db.database import db
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -17,11 +18,11 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class Auth:
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(plain_password[:72], hashed_password)
+        return pwd_context.verify(plain_password, hashed_password)
 
     @staticmethod
     def get_password_hash(password: str) -> str:
-        return pwd_context.hash(password[:72])
+        return pwd_context.hash(password)
 
     @staticmethod
     def validate_password(password: str) -> tuple[bool, str]:
@@ -75,6 +76,7 @@ class Auth:
             return {"status": "failed", "message": "Email already registered"}
 
         is_valid, error_message = self.validate_password(password)
+        logger.info(password)
         if not is_valid:
             return {"status": "failed", "message": error_message}
 
