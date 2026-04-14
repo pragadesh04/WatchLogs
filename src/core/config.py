@@ -18,4 +18,4 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 category = ["tv", "movie"]
 
-origins = ["http://watchloger.vercel.app"]
+origins = ["http://watchloger.vercel.app", "http://localhost:5173"]
