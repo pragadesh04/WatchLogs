@@ -1,4 +1,5 @@
-from ..utils.database import db as database
+from db.database import db
+from bson import ObjectId
 
 
 class HelperFunctions:
@@ -22,7 +23,7 @@ class HelperFunctions:
         return new_data
 
     async def format_tmdb_data(self, data: dict) -> dict:
-        media_type = data.get('media_type')
+        media_type = data.get("media_type")
         new_data = {
             "name": data.get("name") if media_type == "tv" else data.get("title"),
             "overview": data.get("overview"),
@@ -37,7 +38,6 @@ class HelperFunctions:
         for data in datas:
             new_data.append(await self.format_tmdb_data(data))
         return new_data
-        
 
     async def format_tmdb_details(
         self, data: dict, content_type: str = "movie"
@@ -49,24 +49,29 @@ class HelperFunctions:
         new_data = {
             "imdb_id": data.get("imdb_id"),
             "Title": data.get("name"),
-            "Poster": f"https://image.tmdb.org/t/p/original/{data.get('poster_path')}"
-            if data.get("poster_path")
-            else None,
-            "Runtime": f"{runtime_minutes // 60} Hours {runtime_minutes % 60} Minutes"
-            if runtime_minutes
-            else "N/A",
+            "Poster": (
+                f"https://image.tmdb.org/t/p/original/{data.get('poster_path')}"
+                if data.get("poster_path")
+                else None
+            ),
+            "Runtime": (
+                f"{runtime_minutes // 60} Hours {runtime_minutes % 60} Minutes"
+                if runtime_minutes
+                else "N/A"
+            ),
             "Type": content_type,
             "overview": data.get("overview"),
             "backdrop_path": data.get("backdrop_path"),
-            "is_released": True
-            if data.get('status') == 'Released'
-            else False
+            "is_released": True if data.get("status") == "Released" else False,
         }
         return new_data
 
-    async def serializer(self, data: dict) -> dict:
-        data["id"] = str(data["_id"])
-        del data["_id"]
+    async def serializer(self, data: dict, field: str = None) -> dict:
+        if "_id" in data:
+            data["id"] = str(data["_id"])
+            del data["_id"]
+        if field and field in data:
+            data[field] = str(data[field])
         return data
 
     async def serializer_list(self, datas: list) -> list:
@@ -75,7 +80,15 @@ class HelperFunctions:
         return datas
 
     async def check_id_exists(self, id: str, collection_name: str):
-        data = database[collection_name].find_one({"imdb_id": id})
+        data = db[collection_name].find_one({"imdb_id": id})
+        return True if data else False
+
+    async def check_id_exists_for_user(
+        self, id: str, collection_name: str, user_id: str
+    ):
+        data = db[collection_name].find_one(
+            {"imdb_id": id, "user_id": ObjectId(user_id)}
+        )
         return True if data else False
 
     async def get_tmdb_type(self, type_name):

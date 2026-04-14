@@ -1,6 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getImdbId, addToWatchlist, addToWatching, addToCompleted } from '../services/api';
 import { useToast } from './ToastProvider';
+import { useAuthStore } from '../stores/authStore';
+import { useSettingsStore, getPosterUrl } from '../stores/settingsStore';
 
 export default function MovieCard({ movie, contentType = 'movie', onAdded }) {
   const [showActions, setShowActions] = useState(false);
@@ -9,8 +12,11 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded }) {
   const [loading, setLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState(null);
   const { showToast } = useToast();
+  const { isAuthenticated } = useAuthStore();
+  const { showImages } = useSettingsStore();
+  const navigate = useNavigate();
 
-  const posterUrl = movie.poster_link || 'https://placehold.co/500x750/png?text=No+Poster';
+  const posterUrl = getPosterUrl(movie, showImages);
   const title = movie.name || movie.title || 'Untitled';
   const overview = movie.overview || 'No overview available.';
   const contentTypeLabel = movie.content_type === 'tv' ? 'TV Series' : 'Movie';
@@ -27,22 +33,29 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded }) {
   };
 
   const handleAdd = async (listType) => {
+    if (!isAuthenticated) {
+      showToast('Please login to add movies to your list', 'error');
+      navigate('/login');
+      return;
+    }
+    
     setLoadingAction(listType);
     setLoading(true);
     try {
       const type = movie.content_type || contentType;
       const imdbRes = await getImdbId(movie.id, type);
       const imdbId = imdbRes.data.response;
+      const movieName = movie.name || movie.title || 'Untitled';
       
       if (listType === 'watchlist') {
         await addToWatchlist(imdbId, type);
-        showToast('Added to Watchlist', 'success');
+        showToast(`Added "${movieName}" to Watchlist`, 'success');
       } else if (listType === 'watching') {
         await addToWatching(imdbId, 0, null, type);
-        showToast('Added to Watching', 'success');
+        showToast(`Added "${movieName}" to Watching`, 'success');
       } else if (listType === 'completed') {
         await addToCompleted(imdbId, type);
-        showToast('Added to Completed', 'success');
+        showToast(`Added "${movieName}" to Completed`, 'success');
       }
       
       if (onAdded) onAdded(listType);

@@ -11,6 +11,11 @@ TMDB_URL = os.getenv("TMDB_URL")
 
 MONGO_URI = os.getenv("MONGO_URI")
 
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 12
+REFRESH_TOKEN_EXPIRE_DAYS = 7
+
 category = ["tv", "movie"]
 
 origins = ["http://localhost:5173"]

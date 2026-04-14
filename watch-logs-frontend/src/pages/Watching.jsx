@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchWatching, updateProgress, deleteFromWatching } from '../services/api';
-import { useSettingsStore, getGridCols } from '../stores/settingsStore';
+import { useSettingsStore, getGridCols, getPosterUrl } from '../stores/settingsStore';
 import { useStatsStore } from '../stores/statsStore';
 import { SkeletonGrid } from '../components/SkeletonCard';
+import { useToast } from '../components/ToastProvider';
 
 export default function Watching() {
   const [items, setItems] = useState([]);
@@ -11,8 +12,9 @@ export default function Watching() {
   const [selectedItem, setSelectedItem] = useState(null);
   const [progress, setProgress] = useState({ minutes: '', season: '', episode: '' });
   const [updating, setUpdating] = useState(false);
-  const { gridSize } = useSettingsStore();
+  const { gridSize, showImages } = useSettingsStore();
   const { updateFromLists } = useStatsStore();
+  const { showToast } = useToast();
   const lastY = useRef(0);
 
   useEffect(() => {
@@ -87,12 +89,13 @@ export default function Watching() {
     setUpdating(false);
   };
 
-  const handleDelete = async (e, imdbId) => {
+  const handleDelete = async (e, imdbId, name) => {
     e.stopPropagation();
     try {
       await deleteFromWatching(imdbId);
       setItems(items.filter(item => item.imdb_id !== imdbId));
       setSelectedItem(null);
+      showToast(`Removed "${name}" from Watching`, 'success');
     } catch (err) {
       console.error('Failed to delete:', err);
     }
@@ -136,7 +139,7 @@ export default function Watching() {
             onClick={() => handleItemClick(item)}
           >
             <img
-              src={item.poster_link || 'https://placehold.co/500x750/png?text=No+Poster'}
+              src={getPosterUrl(item, showImages)}
               alt={item.name}
               className="w-full h-auto"
             />
@@ -164,7 +167,7 @@ export default function Watching() {
           >
             <div className="flex gap-4 mb-4">
               <img
-                src={selectedItem.poster_link || 'https://placehold.co/500x750/png?text=No+Poster'}
+                src={getPosterUrl(selectedItem, showImages)}
                 alt={selectedItem.name}
                 className="w-24 h-36 object-cover rounded-lg"
               />
@@ -228,7 +231,7 @@ export default function Watching() {
               {updating ? 'Saving...' : 'Save Progress'}
             </button>
             <button 
-              onClick={(e) => handleDelete(e, selectedItem.imdb_id)}
+              onClick={(e) => handleDelete(e, selectedItem.imdb_id, selectedItem.name)}
               className="w-full py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
             >
               Remove

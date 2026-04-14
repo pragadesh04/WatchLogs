@@ -3,14 +3,16 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useTheme } from './ThemeProvider';
 import { useSettingsStore, getGridCols } from '../stores/settingsStore';
 import { useStatsStore } from '../stores/statsStore';
+import { useAuthStore } from '../stores/authStore';
 import { useToast } from './ToastProvider';
 import { fetchWatchlist, fetchWatching, fetchCompleted, createSharedList } from '../services/api';
 
 export default function Navbar() {
   const { theme, cycleTheme } = useTheme();
-  const { gridSize, setGridSize } = useSettingsStore();
+  const { gridSize, showImages, setGridSize, setShowImages } = useSettingsStore();
   const { stats, updateFromLists } = useStatsStore();
   const { showToast } = useToast();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const [showMenu, setShowMenu] = useState(false);
   const [expandedSections, setExpandedSections] = useState({ stats: true, settings: false, share: false });
   const [shareLists, setShareLists] = useState({ watchlist: false, watching: false, completed: false });
@@ -39,6 +41,8 @@ export default function Navbar() {
   }, [showMenu]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     const loadStats = async () => {
       try {
         const [watchlist, watching, completed] = await Promise.all([
@@ -52,7 +56,7 @@ export default function Navbar() {
       }
     };
     loadStats();
-  }, [updateFromLists]);
+  }, [isAuthenticated, updateFromLists]);
 
   const cycleGridSize = () => {
     const sizes = ['small', 'medium', 'large'];
@@ -124,25 +128,49 @@ export default function Navbar() {
             Completed
           </NavLink>
           
-          <button 
-            onClick={toggleMenu}
-            className={`more-btn flex flex-col items-center text-xs ${showMenu ? 'text-red-500' : 'text-gray-500'} relative`}
-          >
-            <svg className="w-6 h-6 mb-1" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
-            </svg>
-            More
-            {stats.totalWatched > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                {stats.totalWatched}
-              </span>
-            )}
-          </button>
+          {isAuthenticated ? (
+            <button 
+              onClick={toggleMenu}
+              className={`more-btn flex flex-col items-center text-xs ${showMenu ? 'text-red-500' : 'text-gray-500'} relative`}
+            >
+              <svg className="w-6 h-6 mb-1" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+              </svg>
+              More
+              {stats.totalWatched > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                  {stats.totalWatched}
+                </span>
+              )}
+            </button>
+          ) : (
+            <NavLink 
+              to="/login"
+              className={({ isActive }) => 
+                `flex flex-col items-center text-xs ${isActive ? 'text-red-500' : 'text-gray-500'}`
+              }
+            >
+              <svg className="w-6 h-6 mb-1" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+              </svg>
+              Login
+            </NavLink>
+          )}
         </div>
       </nav>
 
-      {showMenu && (
+      {showMenu && isAuthenticated && (
         <div className="more-menu fixed bottom-16 right-4 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg shadow-lg p-4 z-50 w-72 max-h-[70vh] overflow-y-auto">
+          <div className="mb-4 flex items-center justify-between">
+            <span className="font-bold">{user?.email}</span>
+            <button 
+              onClick={() => { logout(); closeMenu(); }}
+              className="text-red-500 text-sm hover:underline"
+            >
+              Logout
+            </button>
+          </div>
+
           <div className="mb-4">
             <button 
               onClick={() => setExpandedSections({ ...expandedSections, stats: !expandedSections.stats })}
@@ -205,6 +233,13 @@ export default function Navbar() {
                 >
                   <span>Theme</span>
                   <span className="text-gray-400 capitalize">{theme}</span>
+                </button>
+                <button 
+                  onClick={() => setShowImages(!showImages)}
+                  className="w-full flex items-center justify-between text-sm py-1"
+                >
+                  <span>Show Images</span>
+                  <span className="text-gray-400">{showImages ? 'On' : 'Off'}</span>
                 </button>
               </div>
             )}

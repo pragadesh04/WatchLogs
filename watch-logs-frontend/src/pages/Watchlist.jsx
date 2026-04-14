@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchWatchlist, deleteFromWatchlist } from '../services/api';
-import { useSettingsStore, getGridCols } from '../stores/settingsStore';
+import { useSettingsStore, getGridCols, getPosterUrl } from '../stores/settingsStore';
 import { useStatsStore } from '../stores/statsStore';
 import { SkeletonGrid } from '../components/SkeletonCard';
+import { useToast } from '../components/ToastProvider';
 
 export default function Watchlist() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedItem, setSelectedItem] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { gridSize } = useSettingsStore();
+  const { gridSize, showImages } = useSettingsStore();
   const { incrementWatched } = useStatsStore();
+  const { showToast } = useToast();
   const lastY = useRef(0);
 
   useEffect(() => {
@@ -57,12 +59,13 @@ export default function Watchlist() {
     setSelectedItem(item);
   };
 
-  const handleDelete = async (e, imdbId) => {
+  const handleDelete = async (e, imdbId, name) => {
     e.stopPropagation();
     try {
       await deleteFromWatchlist(imdbId);
       setItems(items.filter(item => item.imdb_id !== imdbId));
       setSelectedItem(null);
+      showToast(`Removed "${name}" from Watchlist`, 'success');
     } catch (err) {
       console.error('Failed to delete:', err);
     }
@@ -106,7 +109,7 @@ export default function Watchlist() {
             onClick={() => handleItemClick(item)}
           >
             <img
-              src={item.poster_link || 'https://placehold.co/500x750/png?text=No+Poster'}
+              src={getPosterUrl(item, showImages)}
               alt={item.name}
               className="w-full h-auto"
             />
@@ -126,7 +129,7 @@ export default function Watchlist() {
           >
             <div className="flex gap-4 mb-4">
               <img
-                src={selectedItem.poster_link || 'https://placehold.co/500x750/png?text=No+Poster'}
+                src={getPosterUrl(selectedItem, showImages)}
                 alt={selectedItem.name}
                 className="w-32 h-48 object-cover rounded-lg"
               />
@@ -146,7 +149,7 @@ export default function Watchlist() {
                 Close
               </button>
               <button 
-                onClick={(e) => handleDelete(e, selectedItem.imdb_id)}
+                onClick={(e) => handleDelete(e, selectedItem.imdb_id, selectedItem.name)}
                 className="flex-1 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
               >
                 Remove

@@ -6,3 +6,6 @@ black
 pydantic
 pymongo
 tenacity
+passlib[bcrypt]
+pyjwt
+python-multipart
