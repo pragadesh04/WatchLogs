@@ -199,6 +199,7 @@ class MoviesService:
                 else:
                     return {"status": "Failed", "message": "cannot fetch the datas"}
         except Exception as e:
+            logger.info(f"error occured {e}")
             raise e
 
     @retry(
