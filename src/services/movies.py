@@ -18,7 +18,10 @@ from utils.helpers import HelperFunctions
 
 helpers = HelperFunctions()
 
-logging.basicConfig(format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 CACHE_DURATION_HOURS = 12
@@ -159,7 +162,10 @@ class MoviesService:
         type_name = await helpers.get_tmdb_type(type_name)
         cache_key = f"trending_{type_name}"
 
+        logger.info('Getting trending')
+
         if use_cache:
+            logger.info('Getting Cache trending')
             cached = db.trending_cache.find_one({"key": cache_key})
             if cached:
                 cached_at = cached.get("cached_at")
