@@ -9,6 +9,8 @@ export const useAuthStore = create(
       accessToken: null,
       refreshToken: null,
       isAuthenticated: false,
+      isRefreshing: false,
+      refreshPromise: null,
 
       login: (user, accessToken, refreshToken) => {
         set({
@@ -20,36 +22,52 @@ export const useAuthStore = create(
       },
 
       logout: async () => {
-        try {
-          if (get().accessToken) {
-            await api.post('/auth/logout', {}, {
-              headers: { Authorization: `Bearer ${get().accessToken}` }
-            });
-          }
-        } catch (e) {
-          console.error('Logout error:', e);
-        }
+        const { accessToken } = get();
         set({
           user: null,
           accessToken: null,
           refreshToken: null,
           isAuthenticated: false,
+          isRefreshing: false,
+          refreshPromise: null,
         });
+        try {
+          if (accessToken) {
+            await api.post('/auth/logout', {}, {
+              headers: { Authorization: `Bearer ${accessToken}` }
+            });
+          }
+        } catch (e) {
+          console.error('Logout error:', e);
+        }
       },
 
       refreshAccessToken: async () => {
-        const { refreshToken } = get();
+        const { refreshToken, isRefreshing, refreshPromise } = get();
+        
+        if (isRefreshing && refreshPromise) {
+          return refreshPromise;
+        }
+        
         if (!refreshToken) return false;
 
-        try {
-          const res = await api.post('/auth/refresh', { refresh_token: refreshToken });
-          const newAccessToken = res.data.access_token;
-          set({ accessToken: newAccessToken });
-          return newAccessToken;
-        } catch (e) {
-          get().logout();
-          return null;
-        }
+        const refresh = async () => {
+          try {
+            const res = await api.post('/auth/refresh', { refresh_token: refreshToken });
+            const newAccessToken = res.data.access_token;
+            set({ accessToken: newAccessToken, isRefreshing: false, refreshPromise: null });
+            return newAccessToken;
+          } catch (e) {
+            set({ isRefreshing: false, refreshPromise: null });
+            get().logout();
+            return null;
+          }
+        };
+
+        set({ isRefreshing: true });
+        const promise = refresh();
+        set({ refreshPromise: promise });
+        return promise;
       },
 
       setUser: (user) => set({ user }),

@@ -101,7 +101,7 @@ class CompletedService:
             elif sort_by == "rating":
                 sort_field = "vote_average"
 
-            datas = db.completed.find(query).sort(sort_field, sort_order).to_list()
+            datas = list(db.completed.find(query).sort(sort_field, sort_order))
             formatted_data = await helpers.serializer_list(datas)
 
             if datas:

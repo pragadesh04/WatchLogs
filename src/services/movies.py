@@ -321,7 +321,7 @@ class MoviesService:
 
             items = []
             if "watchlist" in list_types:
-                watchlist = db.watch_list.find({"user_id": user_id}).to_list()
+                watchlist = list(db.watch_list.find({"user_id": user_id}))
                 for item in watchlist:
                     items.append(
                         {
@@ -336,7 +336,7 @@ class MoviesService:
                     )
 
             if "watching" in list_types:
-                watching = db.watching_list.find({"user_id": user_id}).to_list()
+                watching = list(db.watching_list.find({"user_id": user_id}))
                 for item in watching:
                     items.append(
                         {
@@ -351,7 +351,7 @@ class MoviesService:
                     )
 
             if "completed" in list_types:
-                completed = db.completed.find({"user_id": user_id}).to_list()
+                completed = list(db.completed.find({"user_id": user_id}))
                 for item in completed:
                     items.append(
                         {

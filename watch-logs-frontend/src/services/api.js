@@ -15,17 +15,48 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (token) => {
+  failedQueue.forEach((prom) => {
+    if (token) {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      const newToken = await useAuthStore.getState().refreshAccessToken();
-      if (newToken) {
-        originalRequest.headers.Authorization = `Bearer ${newToken}`;
-        return api(originalRequest);
+      
+      if (!isRefreshing) {
+        isRefreshing = true;
+        
+        const newToken = await useAuthStore.getState().refreshAccessToken();
+        
+        if (newToken) {
+          processQueue(newToken);
+          isRefreshing = false;
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          return api(originalRequest);
+        }
+        
+        isRefreshing = false;
+        return Promise.reject(error);
       }
+      
+      return new Promise((resolve) => {
+        failedQueue.push({ resolve });
+      }).then((token) => {
+        originalRequest.headers.Authorization = `Bearer ${token}`;
+        return api(originalRequest);
+      });
     }
     return Promise.reject(error);
   }
