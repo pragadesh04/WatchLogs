@@ -92,7 +92,7 @@ export const deleteFromWatching = (imdbId) => api.delete(`/watching/${imdbId}`);
 export const deleteFromCompleted = (imdbId) => api.delete(`/completed/${imdbId}`);
 
 export const updateProgress = (imdbId, data) => 
-  api.patch(`/watching/${imdbId}/progress`, data);
+  api.patch(`/progress/${imdbId}`, data);
 
 export const createSharedList = (listTypes, expirationDays = null) => 
   api.post('/share/create', { list_types: listTypes, expiration_days: expirationDays });
