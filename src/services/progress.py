@@ -2,14 +2,22 @@ import logging
 
 from db.database import db
 from utils.helpers import HelperFunctions
+from services.completed import CompletedService
 
 logger = logging.getLogger(__name__)
 helpers = HelperFunctions()
+completed_service = CompletedService()
 
 
 class ProgressService:
     async def update_movie_progress(self, id: str, minutes: int, user_id: str = None):
         try:
+            item = db.watching_list.find_one({"imdb_id": id, "user_id": user_id})
+            if not item:
+                return {"status": "failed", "message": "Movie not found"}
+
+            total_runtime = item.get("total_runtime", 0)
+
             result = db.watching_list.update_one(
                 {"imdb_id": id, "user_id": user_id},
                 {
@@ -19,6 +27,9 @@ class ProgressService:
                 },
             )
             if result.modified_count > 0:
+                if minutes >= total_runtime and total_runtime > 0:
+                    await completed_service.add_to_completed(id, "movie", user_id)
+                    return {"status": "success", "action": "completed"}
                 return {"status": "success", "message": "Movie progress updated"}
             return {"status": "failed", "message": "Movie not found"}
         except Exception as e:

@@ -77,12 +77,15 @@ export default function Watching() {
                 if (progress.minutes) data.minutes = parseInt(progress.minutes);
             }
 
-            console.log(selectedItem);
-            console.log(selectedItem.imdb_id);
-            await updateProgress(selectedItem.imdb_id, data);
+            const res = await updateProgress(selectedItem.imdb_id, data);
 
+            if (res.data?.action === 'completed') {
+                showToast(`"${selectedItem.name}" completed!`, 'success');
+                setSelectedItem(null);
+            } else {
+                setSelectedItem(null);
+            }
             loadData();
-            setSelectedItem(null);
         } catch (err) {
             console.error('Failed to update progress:', err);
         }
