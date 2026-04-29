@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Header from './components/Header';
 import Navbar from './components/Navbar';
 import ToastProvider from './components/ToastProvider';
 import ThemeProvider from './components/ThemeProvider';
@@ -33,6 +34,7 @@ function App() {
       <ThemeProvider>
         <ToastProvider>
           <div className="min-h-screen bg-[var(--bg-primary)]">
+            <Header />
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
