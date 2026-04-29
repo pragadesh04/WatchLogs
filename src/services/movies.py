@@ -158,10 +158,67 @@ class MoviesService:
         wait=wait_exponential(multiplier=1, min=1, max=3),
         retry=retry_if_exception_type(httpx.ConnectError),
     )
+    async def get_omdb_series_details(self, imdb_id: str) -> dict | None:
+        """Fetch TV series details from OMDb including totalSeasons"""
+        url = config.OMDB_URL
+        params = {"apikey": config.OMDB_API, "i": imdb_id, "type": "series"}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params)
+                data = response.json()
+                if data.get("Response") == "True":
+                    return data
+                return None
+        except httpx.ConnectError as e:
+            raise e
+
+    @retry(
+        stop=stop_after_attempt(ATTEMPT_TIMES),
+        wait=wait_exponential(multiplier=1, min=1, max=3),
+        retry=retry_if_exception_type(httpx.ConnectError),
+    )
+    async def get_omdb_season(self, imdb_id: str, season_number: int) -> dict | None:
+        """Fetch specific season data from OMDb including episodes list"""
+        url = config.OMDB_URL
+        params = {"apikey": config.OMDB_API, "i": imdb_id, "Season": season_number}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params)
+                data = response.json()
+                if data.get("Response") == "True":
+                    return data
+                return None
+        except httpx.ConnectError as e:
+            raise e
+
+    async def get_omdb_all_seasons(self, imdb_id: str, total_seasons: int) -> list:
+        """Pre-fetch all seasons concurrently for immediate UI display"""
+        import asyncio
+        
+        season_reqs = [
+            self.get_omdb_season(imdb_id, i + 1) 
+            for i in range(total_seasons)
+        ]
+        try:
+            seasons_data = await asyncio.gather(*season_reqs, return_exceptions=True)
+            return [
+                {"season": i + 1, "data": s} 
+                for i, s in enumerate(seasons_data) 
+                if s and not isinstance(s, Exception)
+            ]
+        except Exception as e:
+            logger.warning(f"Failed to fetch all seasons for {imdb_id}: {e}")
+            return []
+
+    @retry(
+        stop=stop_after_attempt(ATTEMPT_TIMES),
+        wait=wait_exponential(multiplier=1, min=2, max=3),
+        retry=retry_if_exception_type(httpx.ConnectError),
+    )
     async def get_trending(self, type_name: str, use_cache: bool = True):
         url = config.TMDB_URL
         type_name = await helpers.get_tmdb_type(type_name)
-        cache_key = f"trending_{type_name}"
+        cache_key = f"trending_v2_{type_name}"
 
         logger.info("Getting trending")
 
@@ -184,6 +241,28 @@ class MoviesService:
                 )
                 data = (response.json()).get("results", [])
                 data = await helpers.format_tmdb_datas(data)
+                
+                # Enrich with season/episode counts and runtime
+                import asyncio
+                async def enrich_item(item):
+                    try:
+                        details = await self.get_details_overview(item.get("id"), type_name)
+                        if type_name == "tv":
+                            item["total_seasons"] = details.get("number_of_seasons")
+                            item["total_episodes"] = details.get("number_of_episodes")
+                        else:
+                            runtime = details.get("runtime") or 0
+                            item["total_runtime"] = runtime
+                        return item
+                    except Exception as e:
+                        logger.warning(f"Failed to enrich trending item {item.get('id')}: {e}")
+                        return item
+                
+                # Enrich items concurrently (limit to first 20 for performance)
+                enrich_tasks = [enrich_item(item) for item in data[:20]]
+                enriched = await asyncio.gather(*enrich_tasks)
+                data[:20] = enriched
+                
                 if data:
                     db.trending_cache.update_one(
                         {"key": cache_key},
@@ -279,12 +358,14 @@ class MoviesService:
                 )
                 vote_average = details.get("vote_average")
                 total_episodes = details.get("number_of_episodes")
+                total_seasons = details.get("number_of_seasons")
 
                 item["genres"] = genres
                 item["total_runtime"] = runtime
                 item["release_date"] = release_date
                 item["vote_average"] = round(vote_average, 1) if vote_average else None
                 item["total_episodes"] = total_episodes
+                item["total_seasons"] = total_seasons
 
                 credits = await self.get_credits(tmdb_id, content_type)
                 cast = [p["name"] for p in credits.get("cast", [])[:5]]
@@ -297,9 +378,8 @@ class MoviesService:
                 if content_type in ["series", "tv"]:
                     current_season = item.get("current_season", 1)
                     current_episode = item.get("current_episode", 1)
-                    item["watched_episodes"] = (
-                        current_season - 1
-                    ) * 10 + current_episode
+                    item["current_season"] = current_season
+                    item["current_episode"] = current_episode
                 else:
                     watched_minutes = self._parse_watched_minutes(
                         item.get("time_stamp")
@@ -430,3 +510,61 @@ class MoviesService:
         except Exception as e:
             logger.error(f"Error fetching shared list: {e}")
             raise e
+
+    async def get_series_metadata(self, imdb_id: str):
+        """
+        Fetch exact season and episode metadata from TMDB using IMDB ID.
+        Replaces old 'averaging' logic.
+        """
+        headers = {"Authorization": f"Bearer {config.TMDB_API}"}
+        url = config.TMDB_URL
+        
+        async with httpx.AsyncClient() as client:
+            # 1. Find TMDB TV ID from IMDB ID
+            res = await client.get(f"{url}find/{imdb_id}?external_source=imdb_id", headers=headers)
+            tv_results = res.json().get('tv_results', [])
+            if not tv_results:
+                return {"status": "error", "message": "TV series not found"}
+            
+            tv_id = tv_results[0].get('id', 0)
+            
+            # 2. Get total seasons and episodes
+            res = await client.get(f"{url}tv/{tv_id}", headers=headers)
+            datas = res.json()
+            number_of_season = datas.get('number_of_seasons', 0)
+            
+            # 3. Fetch each season's breakdown concurrently
+            import asyncio
+            async def fetch_season(season_num):
+                try:
+                    res = await client.get(f"{url}tv/{tv_id}/season/{season_num}", headers=headers)
+                    episodes = res.json().get('episodes', [])
+                    
+                    return {
+                        "season": season_num,
+                        "episode_count": len(episodes),
+                        "episodes": [
+                            {
+                                'episode_number': ep.get('episode_number'),
+                                'episode_name': ep.get('name', ''),
+                                'overview': ep.get('overview', '')
+                            } for ep in episodes
+                        ]
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to fetch season {season_num}: {e}")
+                    return {
+                        "season": season_num,
+                        "episode_count": 0,
+                        "episodes": []
+                    }
+            
+            season_tasks = [fetch_season(season) for season in range(1, number_of_season + 1)]
+            episode_details = await asyncio.gather(*season_tasks)
+            
+            return {
+                "imdb_id": imdb_id,
+                "total_seasons": number_of_season,
+                "total_episodes": datas.get('number_of_episodes', 0),
+                "seasons": episode_details
+            }

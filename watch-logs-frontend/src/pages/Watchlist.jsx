@@ -1,18 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchWatchlist, deleteFromWatchlist, addToCompleted } from '../services/api';
 import { useSettingsStore, getGridCols, getPosterUrl } from '../stores/settingsStore';
 import { useStatsStore } from '../stores/statsStore';
 import { SkeletonGrid } from '../components/SkeletonCard';
 import { useToast } from '../components/ToastProvider';
+import SentientCard from '../components/SentientCard';
+import CastChips from '../components/CastChips';
+import MagneticButton from '../components/MagneticButton';
+import gsap from 'gsap';
 
 export default function Watchlist() {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedItem, setSelectedItem] = useState(null);
-    const [isRefreshing, setIsRefreshing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState('date_added');
+    const gridRef = useRef(null);
+    const modalRef = useRef(null);
+    const backdropRef = useRef(null);
     const { gridSize, showImages } = useSettingsStore();
     const { incrementWatched } = useStatsStore();
     const { showToast } = useToast();
@@ -20,17 +26,21 @@ export default function Watchlist() {
 
     useEffect(() => {
         loadData();
-    }, [sortBy]);
+    }, []);
 
     useEffect(() => {
-        const delayDebounceFn = setTimeout(() => {
-            if (searchTerm) {
-                loadData(searchTerm);
-            } else {
-                loadData();
-            }
-        }, 300);
+        if (!loading && items.length > 0) {
+            gsap.fromTo(gridRef.current?.querySelectorAll('.sentient-card'), {
+                opacity: 0, y: 30, scale: 0.95
+            }, {
+                opacity: 1, y: 0, scale: 1, duration: 0.5, stagger: 0.06, ease: 'back.out(1.2)',
+                delay: 0.1,
+            });
+        }
+    }, [items, loading]);
 
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(() => {}, 300);
         return () => clearTimeout(delayDebounceFn);
     }, [searchTerm]);
 
@@ -44,9 +54,9 @@ export default function Watchlist() {
             const diff = lastY.current - currentY;
 
             if (diff > 50 && window.scrollY < 50) {
-                setIsRefreshing(true);
+                setLoading(true);
                 await loadData();
-                setIsRefreshing(false);
+                setLoading(false);
             }
         };
 
@@ -59,9 +69,9 @@ export default function Watchlist() {
         };
     }, []);
 
-    const loadData = async (search = null) => {
+    const loadData = async () => {
         try {
-            const res = await fetchWatchlist(sortBy, 'desc', null, search || searchTerm || null);
+            const res = await fetchWatchlist(sortBy, 'desc');
             setItems(res.data || []);
         } catch (err) {
             console.error('Failed to fetch watchlist:', err);
@@ -69,8 +79,82 @@ export default function Watchlist() {
         setLoading(false);
     };
 
+    const filteredAndSorted = useMemo(() => {
+        let result = [...items];
+
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            result = result.filter(item => {
+                const name = (item.name || '').toLowerCase();
+                const cast = (Array.isArray(item.cast) ? item.cast.join(', ') : (item.cast || '')).toLowerCase();
+                const director = (item.director || '').toLowerCase();
+                return name.includes(term) || cast.includes(term) || director.includes(term);
+            });
+        }
+
+        result.sort((a, b) => {
+            if (sortBy === 'date_added') {
+                return new Date(b.date_added || 0) - new Date(a.date_added || 0);
+            } else if (sortBy === 'release_year') {
+                return (b.release_date || '').localeCompare(a.release_date || '');
+            } else if (sortBy === 'rating') {
+                return (parseFloat(b.rating) || 0) - (parseFloat(a.rating) || 0);
+            } else if (sortBy === 'title') {
+                return (a.name || '').localeCompare(b.name || '');
+            }
+            return 0;
+        });
+
+        return result;
+    }, [items, searchTerm, sortBy]);
+
     const handleItemClick = (item) => {
         setSelectedItem(item);
+
+        gsap.to(gridRef.current, {
+            scale: 0.9,
+            filter: 'blur(8px)',
+            duration: 0.4,
+            ease: 'power2.inOut',
+        });
+
+        gsap.fromTo(modalRef.current, {
+            y: '100%',
+            opacity: 0,
+            rotateX: 15,
+        }, {
+            y: '0%',
+            opacity: 1,
+            rotateX: 0,
+            duration: 0.5,
+            ease: 'power3.out',
+        });
+
+        if (backdropRef.current) {
+            gsap.fromTo(backdropRef.current, { opacity: 0 }, { opacity: 1, duration: 0.3 });
+        }
+    };
+
+    const closeModal = () => {
+        gsap.to(gridRef.current, {
+            scale: 1,
+            filter: 'blur(0px)',
+            duration: 0.4,
+            ease: 'power2.inOut',
+        });
+
+        gsap.to(modalRef.current, {
+            y: '100%',
+            opacity: 0,
+            duration: 0.3,
+            ease: 'power2.in',
+        });
+
+        if (backdropRef.current) {
+            gsap.to(backdropRef.current, { opacity: 0, duration: 0.2 });
+        }
+
+        setTimeout(() => setSelectedItem(null), 300);
     };
 
     const handleDelete = async (e, imdbId, name) => {
@@ -78,7 +162,6 @@ export default function Watchlist() {
         try {
             await deleteFromWatchlist(imdbId);
             setItems(items.filter(item => item.imdb_id !== imdbId));
-            setSelectedItem(null);
             showToast(`Removed "${name}" from Watchlist`, 'success');
         } catch (err) {
             console.error('Failed to delete:', err);
@@ -90,7 +173,7 @@ export default function Watchlist() {
         try {
             await addToCompleted(imdbId);
             setItems(items.filter(item => item.imdb_id !== imdbId));
-            setSelectedItem(null);
+            closeModal();
             incrementWatched();
             showToast(`Moved "${name}" to Completed`, 'success');
         } catch (err) {
@@ -98,10 +181,13 @@ export default function Watchlist() {
         }
     };
 
+    const movies = filteredAndSorted.filter(i => i.content_type === 'movie');
+    const series = filteredAndSorted.filter(i => i.content_type === 'tv' || i.content_type === 'series');
+
     if (loading) {
         return (
             <div className="pb-20 px-4 py-6">
-                <div className="h-8 w-32 bg-gray-800 rounded mb-6 animate-pulse" />
+                <div className="h-8 w-32 bg-[var(--bg-card)] rounded mb-6 animate-pulse" />
                 <SkeletonGrid count={10} gridCols={getGridCols(gridSize)} />
             </div>
         );
@@ -114,7 +200,7 @@ export default function Watchlist() {
                     <path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z" />
                 </svg>
                 <h2 className="text-xl font-semibold mb-2">Your Watchlist is Empty</h2>
-                <p className="text-gray-500 mb-6">Add movies you want to watch later</p>
+                <p className="text-[var(--text-secondary)] mb-6">Add movies you want to watch later</p>
                 <Link
                     to="/"
                     className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
@@ -125,11 +211,8 @@ export default function Watchlist() {
         );
     }
 
-    const movies = items.filter(i => i.content_type === 'movie');
-    const series = items.filter(i => i.content_type === 'tv' || i.content_type === 'series');
-
     return (
-        <div className="pb-20 px-4 py-6">
+        <div className="pb-20 px-4 py-6 relative">
             <h1 className="text-2xl font-bold mb-6">Watchlist</h1>
 
             <div className="flex gap-2 mb-4">
@@ -138,114 +221,123 @@ export default function Watchlist() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="Search by name, cast, director..."
-                    className="flex-1 px-3 py-2 bg-gray-800 rounded text-white placeholder-gray-500"
+                    className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-red-500/50 transition-colors"
                 />
                 <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
-                    className="px-3 py-2 bg-gray-800 rounded text-white"
+                    className="px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-red-500/50"
                 >
                     <option value="date_added">Date Added</option>
+                    <option value="title">Title</option>
                     <option value="release_year">Release Year</option>
                     <option value="rating">Rating</option>
                 </select>
             </div>
 
-            {movies.length > 0 && (
-                <>
-                    <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                        <span>Movies</span>
-                        <span className="text-sm text-gray-500">({movies.length})</span>
-                    </h2>
-                    <div className={`grid ${getGridCols(gridSize)} gap-4 mb-6`}>
-                        {movies.map((item) => (
-                            <div
-                                key={item.id}
-                                className="cursor-pointer group rounded-lg overflow-hidden transition-transform hover:scale-105"
-                                onClick={() => handleItemClick(item)}
-                            >
-                                <img
-                                    src={getPosterUrl(item, showImages)}
-                                    alt={item.name}
-                                    className="w-full h-auto"
-                                />
-                                <p className="mt-2 text-sm text-center truncate">{item.name}</p>
-                            </div>
-                        ))}
-                    </div>
-                </>
-            )}
+            <div ref={gridRef}>
+                {movies.length > 0 && (
+                    <>
+                        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                            <span className="text-red-500">●</span> Movies
+                            <span className="text-sm text-[var(--text-secondary)]">({movies.length})</span>
+                        </h2>
+                        <div className={`grid ${getGridCols(gridSize)} gap-4 mb-6`}>
+                            {movies.map((item) => (
+                                <div key={item.id} className="sentient-card">
+                                    <SentientCard
+                                        item={item}
+                                        onClick={() => handleItemClick(item)}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                )}
 
-            {series.length > 0 && (
-                <>
-                    <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                        <span>TV Series</span>
-                        <span className="text-sm text-gray-500">({series.length})</span>
-                    </h2>
-                    <div className={`grid ${getGridCols(gridSize)} gap-4`}>
-                        {series.map((item) => (
-                            <div
-                                key={item.id}
-                                className="cursor-pointer group rounded-lg overflow-hidden transition-transform hover:scale-105"
-                                onClick={() => handleItemClick(item)}
-                            >
-                                <img
-                                    src={getPosterUrl(item, showImages)}
-                                    alt={item.name}
-                                    className="w-full h-auto"
-                                />
-                                <p className="mt-2 text-sm text-center truncate">{item.name}</p>
-                            </div>
-                        ))}
-                    </div>
-                </>
-            )}
+                {series.length > 0 && (
+                    <>
+                        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                            <span className="text-blue-500">●</span> TV Series
+                            <span className="text-sm text-[var(--text-secondary)]">({series.length})</span>
+                        </h2>
+                        <div className={`grid ${getGridCols(gridSize)} gap-4`}>
+                            {series.map((item) => (
+                                <div key={item.id} className="sentient-card">
+                                    <SentientCard
+                                        item={item}
+                                        onClick={() => handleItemClick(item)}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                )}
+            </div>
 
             {selectedItem && (
                 <div
-                    className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4"
-                    onClick={() => setSelectedItem(null)}
+                    ref={backdropRef}
+                    className="fixed inset-0 z-50 flex items-center justify-center"
+                    onClick={closeModal}
                 >
+                    <div className="absolute inset-0 bg-black/70" />
                     <div
-                        className="bg-gray-900 rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6"
+                        ref={modalRef}
+                        className="glass noise-overlay relative max-w-2xl w-full mx-4 rounded-2xl max-h-[85vh] overflow-y-auto"
                         onClick={(e) => e.stopPropagation()}
+                        style={{ transformOrigin: 'bottom center' }}
                     >
-                        <div className="flex gap-4 mb-4">
-                            <img
-                                src={getPosterUrl(selectedItem, showImages)}
-                                alt={selectedItem.name}
-                                className="w-32 h-48 object-cover rounded-lg"
-                            />
-                            <div>
-                                <h2 className="text-2xl font-bold mb-2">{selectedItem.name}</h2>
-                                <p className="text-sm text-gray-500">
-                                    {selectedItem.content_type === 'tv' ? 'TV Series' : 'Movie'}
-                                </p>
+                        <div className="p-6 relative z-10">
+                            <div className="flex gap-4 mb-4">
+                                <img
+                                    src={getPosterUrl(selectedItem, showImages)}
+                                    alt={selectedItem.name}
+                                    className="w-32 h-48 object-cover rounded-lg shadow-lg"
+                                />
+                                <div>
+                                    <h2 className="text-2xl font-bold">{selectedItem.name}</h2>
+                                    <p className="text-[var(--text-secondary)] text-sm mt-1">
+                                        {selectedItem.content_type === 'tv' ? 'TV Series' : 'Movie'}
+                                        {selectedItem.release_date && ` • ${new Date(selectedItem.release_date).getFullYear()}`}
+                                        {selectedItem.rating && ` • ★ ${selectedItem.rating}`}
+                                    </p>
+                                    {selectedItem.cast && <CastChips cast={Array.isArray(selectedItem.cast) ? selectedItem.cast : selectedItem.cast.split(',').filter(Boolean)} />}
+                                </div>
                             </div>
-                        </div>
-                        <p className="text-gray-300 leading-relaxed">{selectedItem.overview || 'No overview available.'}</p>
-                        <div className="flex gap-3 mt-6">
-                            <button
-                                onClick={() => setSelectedItem(null)}
-                                className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-                            >
-                                Close
-                            </button>
-                            <button
-                                onClick={(e) => handleMoveToCompleted(e, selectedItem.imdb_id, selectedItem.name)}
-                                className="flex-1 py-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center justify-center gap-2"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                                Completed
-                            </button>
-                            <button
-                                onClick={(e) => handleDelete(e, selectedItem.imdb_id, selectedItem.name)}
-                                className="flex-1 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-                            >
-                                Remove
-                            </button>
+
+                            <p className="text-[var(--text-secondary)] leading-relaxed">{selectedItem.overview || 'No overview available.'}</p>
+
+                            {selectedItem.release_date && new Date(selectedItem.release_date) > new Date() && (
+                                <div className="mt-4 px-3 py-2 bg-red-600/20 border border-red-500/30 rounded-lg flex items-center gap-2">
+                                    <span className="w-2 h-2 bg-red-500 rounded-full pulse-badge" />
+                                    <span className="text-red-400 text-sm font-medium">Upcoming • Releases {new Date(selectedItem.release_date).toLocaleDateString()}</span>
+                                </div>
+                            )}
+
+                            <div className="flex gap-3 mt-6">
+                                <MagneticButton
+                                    onClick={closeModal}
+                                    className="flex-1 py-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl"
+                                >
+                                    Close
+                                </MagneticButton>
+                                <MagneticButton
+                                    onClick={(e) => handleMoveToCompleted(e, selectedItem.imdb_id, selectedItem.name)}
+                                    className="flex-1 py-3 bg-green-600/90 hover:bg-green-700 rounded-xl flex items-center justify-center gap-2"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Completed
+                                </MagneticButton>
+                                <MagneticButton
+                                    onClick={(e) => handleDelete(e, selectedItem.imdb_id, selectedItem.name)}
+                                    className="flex-1 py-3 bg-red-600/90 hover:bg-red-700 rounded-xl"
+                                >
+                                    Remove
+                                </MagneticButton>
+                            </div>
                         </div>
                     </div>
                 </div>

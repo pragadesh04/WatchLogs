@@ -3,11 +3,11 @@ from fastapi import APIRouter, Depends
 from services.movies import MoviesService
 
 router = APIRouter(prefix="/details", tags=["Details"])
-
+ 
 
 def movie_service():
     return MoviesService()
-
+ 
 
 @router.get("/imdb-id/{movie_id}/{content_type}")
 async def get_imdb_id(
@@ -15,7 +15,7 @@ async def get_imdb_id(
 ):
     response = await service.get_imdb_id(movie_id, content_type)
     return {"response": response}
-
+ 
 
 @router.get("/overview/{movie_id}/{content_type}")
 async def get_imdb_overview(
@@ -23,3 +23,10 @@ async def get_imdb_overview(
 ):
     response = await service.get_details_overview(movie_id, content_type)
     return {"response": response}
+
+@router.get("/series-metadata/{imdb_id}")
+async def get_series_metadata(
+    imdb_id: str, service: MoviesService = Depends(movie_service)
+):
+    response = await service.get_series_metadata(imdb_id)
+    return response

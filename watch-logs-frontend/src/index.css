@@ -3,12 +3,15 @@
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   
-  --bg-primary: #0f0f0f;
-  --bg-secondary: #1a1a1a;
-  --bg-card: #262626;
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-card: #1e1e1e;
   --text-primary: #ffffff;
   --text-secondary: #a3a3a3;
-  --border-color: #404040;
+  --border-color: #2a2a2a;
+  --neon-glow: #ff3333;
+  --glass-bg: rgba(20, 20, 20, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
 }
 
 [data-theme="light"] {
@@ -18,6 +21,8 @@
   --text-primary: #171717;
   --text-secondary: #525252;
   --border-color: #e5e5e5;
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(0, 0, 0, 0.08);
 }
 
 body {
@@ -33,15 +38,141 @@ body {
 }
 
 @keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 .animate-shimmer {
   animation: shimmer 1.5s infinite;
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+}
+
+@keyframes pulse-badge {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+@keyframes neon-pulse {
+  0%, 100% { box-shadow: 0 0 5px var(--neon-glow), 0 0 10px var(--neon-glow), 0 0 20px var(--neon-glow); }
+  50% { box-shadow: 0 0 10px var(--neon-glow), 0 0 20px var(--neon-glow), 0 0 40px var(--neon-glow); }
+}
+
+@keyframes float-in {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.pulse-badge {
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+.neon-glow {
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+.float-in {
+  animation: float-in 0.6s ease-out forwards;
+}
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+}
+
+.glass-heavy {
+  background: var(--glass-bg);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backback-filter: blur(40px) saturate(200%);
+  border: 1px solid var(--glass-border);
+}
+
+.noise-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+}
+
+.card-shadow {
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.4),
+    0 4px 6px -2px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.card-shadow-hover {
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.5),
+    0 10px 10px -5px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.progress-neon {
+  box-shadow: 0 0 8px var(--neon-glow), 0 0 16px rgba(255, 51, 51, 0.3);
+}
+
+.cinematic-text {
+  overflow: hidden;
+}
+
+.cinematic-text span {
+  display: inline-block;
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+.touch-safe * {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #dc2626 0%, #dc2626 var(--progress, 0%), rgba(255, 255, 255, 0.1) var(--progress, 0%), rgba(255, 255, 255, 0.1) 100%);
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #dc2626;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(220, 38, 38, 0.5);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #dc2626;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 10px rgba(220, 38, 38, 0.5);
 }
