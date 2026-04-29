@@ -87,12 +87,20 @@ class CompletedService:
         sort_by: str = "date_added",
         order: str = "desc",
         content_type: str = None,
+        search_query: str = None,
         user_id: str = None,
     ):
         try:
             query = {"user_id": user_id}
             if content_type:
                 query["content_type"] = content_type
+            if search_query:
+                query["$or"] = [
+                    {"name": {"$regex": search_query, "$options": "i"}},
+                    {"cast": {"$regex": search_query, "$options": "i"}},
+                    {"directors": {"$regex": search_query, "$options": "i"}},
+                    {"release_date": {"$regex": search_query, "$options": "i"}},
+                ]
 
             sort_order = -1 if order == "desc" else 1
             sort_field = "created_at"

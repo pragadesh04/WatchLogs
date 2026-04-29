@@ -83,9 +83,12 @@ export const addToWatching = (imdbId, timeStamp, notes, type = 'movie') =>
 export const addToCompleted = (imdbId, contentType = 'movie') => 
   api.post(`/completed?content_type=${contentType}`, { imdb_id: imdbId });
 
-export const fetchWatchlist = () => api.get('/watchlist');
-export const fetchWatching = () => api.get('/watching');
-export const fetchCompleted = () => api.get('/completed');
+export const fetchWatchlist = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => 
+  api.get('/watchlist', { params: { sort_by: sortBy, order, content_type: contentType, search } });
+export const fetchWatching = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => 
+  api.get('/watching', { params: { sort_by: sortBy, order, content_type: contentType, search } });
+export const fetchCompleted = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => 
+  api.get('/completed', { params: { sort_by: sortBy, order, content_type: contentType, search } });
 
 export const deleteFromWatchlist = (imdbId) => api.delete(`/watchlist/${imdbId}`);
 export const deleteFromWatching = (imdbId) => api.delete(`/watching/${imdbId}`);

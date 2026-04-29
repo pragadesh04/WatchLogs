@@ -29,11 +29,12 @@ async def fetch_completed(
     sort_by: str = "date_added",
     order: str = "desc",
     content_type: str = None,
+    search: str = None,
     current_user: dict = Depends(get_current_user),
     service: CompletedService = Depends(completed_service),
 ):
     response = await service.fetch_completed(
-        sort_by, order, content_type, current_user["id"]
+        sort_by, order, content_type, search, current_user["id"]
     )
     return response
 

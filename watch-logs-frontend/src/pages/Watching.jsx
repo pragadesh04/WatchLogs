@@ -12,6 +12,8 @@ export default function Watching() {
     const [selectedItem, setSelectedItem] = useState(null);
     const [progress, setProgress] = useState({ minutes: '', season: '', episode: '' });
     const [updating, setUpdating] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortBy, setSortBy] = useState('date_added');
     const { gridSize, showImages } = useSettingsStore();
     const { updateFromLists, incrementWatched } = useStatsStore();
     const { showToast } = useToast();
@@ -19,7 +21,19 @@ export default function Watching() {
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [sortBy]);
+
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(() => {
+            if (searchTerm) {
+                loadData(searchTerm);
+            } else {
+                loadData();
+            }
+        }, 300);
+
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchTerm]);
 
     useEffect(() => {
         const handleTouchStart = (e) => {
@@ -46,9 +60,9 @@ export default function Watching() {
         };
     }, []);
 
-    const loadData = async () => {
+    const loadData = async (search = null) => {
         try {
-            const res = await fetchWatching();
+            const res = await fetchWatching(sortBy, 'desc', null, search || searchTerm || null);
             setItems(res.data || []);
             updateFromLists([], res.data || [], []);
         } catch (err) {
@@ -126,7 +140,7 @@ export default function Watching() {
         );
     }
 
-    if (items.length === 0) {
+    if (items.length === 0 && !searchTerm) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen pb-20 px-4">
                 <svg className="w-20 h-20 text-gray-600 mb-4" fill="currentColor" viewBox="0 0 24 24">
@@ -144,33 +158,91 @@ export default function Watching() {
         );
     }
 
+    const movies = items.filter(i => i.content_type === 'movie');
+    const series = items.filter(i => i.content_type === 'tv' || i.content_type === 'series');
+
     return (
         <div className="pb-20 px-4 py-6">
             <h1 className="text-2xl font-bold mb-6">Currently Watching</h1>
-            <div className={`grid ${getGridCols(gridSize)} gap-4`}>
-                {items.map((item) => (
-                    <div
-                        key={item.id}
-                        className="cursor-pointer group rounded-lg overflow-hidden transition-transform hover:scale-105"
-                        onClick={() => handleItemClick(item)}
-                    >
-                        <img
-                            src={getPosterUrl(item, showImages)}
-                            alt={item.name}
-                            className="w-full h-auto"
-                        />
-                        <div className="mt-2 text-center">
-                            <p className="text-sm truncate">{item.name}</p>
-                            <p className="text-xs text-gray-500">
-                                {item.content_type === 'tv'
-                                    ? item.time_stamp || 'S0:E0'
-                                    : item.time_stamp || '0 min'
-                                }
-                            </p>
-                        </div>
-                    </div>
-                ))}
+            
+            <div className="flex gap-2 mb-4">
+                <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search by name, cast, director..."
+                    className="flex-1 px-3 py-2 bg-gray-800 rounded text-white placeholder-gray-500"
+                />
+                <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="px-3 py-2 bg-gray-800 rounded text-white"
+                >
+                    <option value="date_added">Date Added</option>
+                    <option value="release_year">Release Year</option>
+                    <option value="rating">Rating</option>
+                </select>
             </div>
+
+            {movies.length > 0 && (
+                <>
+                    <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                        <span>Movies</span>
+                        <span className="text-sm text-gray-500">({movies.length})</span>
+                    </h2>
+                    <div className={`grid ${getGridCols(gridSize)} gap-4 mb-6`}>
+                        {movies.map((item) => (
+                            <div
+                                key={item.id}
+                                className="cursor-pointer group rounded-lg overflow-hidden transition-transform hover:scale-105"
+                                onClick={() => handleItemClick(item)}
+                            >
+                                <img
+                                    src={getPosterUrl(item, showImages)}
+                                    alt={item.name}
+                                    className="w-full h-auto"
+                                />
+                                <div className="mt-2 text-center">
+                                    <p className="text-sm truncate">{item.name}</p>
+                                    <p className="text-xs text-gray-500">
+                                        {item.time_stamp || '0 min'}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            )}
+
+            {series.length > 0 && (
+                <>
+                    <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                        <span>TV Series</span>
+                        <span className="text-sm text-gray-500">({series.length})</span>
+                    </h2>
+                    <div className={`grid ${getGridCols(gridSize)} gap-4`}>
+                        {series.map((item) => (
+                            <div
+                                key={item.id}
+                                className="cursor-pointer group rounded-lg overflow-hidden transition-transform hover:scale-105"
+                                onClick={() => handleItemClick(item)}
+                            >
+                                <img
+                                    src={getPosterUrl(item, showImages)}
+                                    alt={item.name}
+                                    className="w-full h-auto"
+                                />
+                                <div className="mt-2 text-center">
+                                    <p className="text-sm truncate">{item.name}</p>
+                                    <p className="text-xs text-gray-500">
+                                        {item.time_stamp || 'S0:E0'}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            )}
 
             {selectedItem && (
                 <div

@@ -19,8 +19,7 @@ from utils.helpers import HelperFunctions
 helpers = HelperFunctions()
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -28,6 +27,8 @@ CACHE_DURATION_HOURS = 12
 
 ATTEMPT_TIMES = 16
 MAX_TIMES = 32
+
+
 class MoviesService:
     def __init__(self):
         self.headers = {"Authorization": f"Bearer {config.TMDB_API}"}
@@ -162,10 +163,10 @@ class MoviesService:
         type_name = await helpers.get_tmdb_type(type_name)
         cache_key = f"trending_{type_name}"
 
-        logger.info('Getting trending')
+        logger.info("Getting trending")
 
         if use_cache:
-            logger.info('Getting Cache trending')
+            logger.info("Getting Cache trending")
             cached = db.trending_cache.find_one({"key": cache_key})
             if cached:
                 cached_at = cached.get("cached_at")
@@ -242,6 +243,23 @@ class MoviesService:
         except httpx.ConnectError as e:
             raise e
 
+    @retry(
+        stop=stop_after_attempt(ATTEMPT_TIMES),
+        wait=wait_exponential(multiplier=1, min=1, max=3),
+        retry=retry_if_exception_type(httpx.ConnectError),
+    )
+    async def get_credits(self, id: int, type_name: str) -> dict:
+        url = config.TMDB_URL
+        type_name = await helpers.get_tmdb_type(type_name)
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url=f"{url}{type_name}/{id}/credits", headers=self.headers
+                )
+                return response.json()
+        except httpx.ConnectError as e:
+            raise e
+
     async def enrich_item_data(self, item: dict) -> dict:
         try:
             tmdb_id = item.get("id")
@@ -267,6 +285,14 @@ class MoviesService:
                 item["release_date"] = release_date
                 item["vote_average"] = round(vote_average, 1) if vote_average else None
                 item["total_episodes"] = total_episodes
+
+                credits = await self.get_credits(tmdb_id, content_type)
+                cast = [p["name"] for p in credits.get("cast", [])[:5]]
+                directors = [
+                    p["name"] for p in credits.get("crew", []) if p["job"] == "Director"
+                ]
+                item["cast"] = cast
+                item["directors"] = directors
 
                 if content_type in ["series", "tv"]:
                     current_season = item.get("current_season", 1)

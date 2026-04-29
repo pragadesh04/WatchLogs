@@ -29,11 +29,12 @@ async def fetch_watchlist(
     sort_by: str = "date_added",
     order: str = "desc",
     content_type: str = None,
+    search: str = None,
     current_user: dict = Depends(get_current_user),
     service: WatchlistService = Depends(watchlist_service),
 ):
     response = await service.fetch_watchlist(
-        sort_by, order, content_type, current_user["id"]
+        sort_by, order, content_type, search, current_user["id"]
     )
     return response
 
