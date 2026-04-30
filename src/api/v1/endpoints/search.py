@@ -12,9 +12,13 @@ def movie_service():
 
 @router.get("")
 async def search_by_name(
-    q: str, get_movie_service: MoviesService = Depends(movie_service)
+    q: str, 
+    content_type: str = None,
+    get_movie_service: MoviesService = Depends(movie_service)
 ):
     response = await get_movie_service.search_by_name(q)
+    if content_type and content_type != 'all':
+        response = [item for item in response if item.get("content_type") == content_type or item.get("media_type") == content_type]
     return response
 
 

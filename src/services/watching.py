@@ -39,6 +39,19 @@ class WatchingService:
                 else None
             )
             new_data["total_episodes"] = details.get("number_of_episodes")
+            new_data["total_seasons"] = details.get("number_of_seasons")
+
+            # Fetch cast and directors
+            try:
+                credits = await movie_service.get_credits(tmdb_id, content_type)
+                new_data["cast"] = [p["name"] for p in credits.get("cast", [])[:5]]
+                new_data["directors"] = [
+                    p["name"] for p in credits.get("crew", []) if p["job"] == "Director"
+                ]
+            except Exception as e:
+                logger.warning(f"Failed to fetch credits for {tmdb_id}: {e}")
+                new_data["cast"] = []
+                new_data["directors"] = []
 
         data = dict(data)
 
@@ -46,6 +59,17 @@ class WatchingService:
             data["time_stamp"] = f"S{data.get('season', 1)}E{data.get('episode', 1)}"
             data["current_season"] = data.get("season", 1)
             data["current_episode"] = data.get("episode", 1)
+
+            # Pre-fetch series metadata from TMDB and store in DB
+            try:
+                series_metadata = await movie_service.get_series_metadata(imdb_id)
+                if series_metadata and series_metadata.get("status") != "error":
+                    data["series_metadata"] = series_metadata
+                    # Update total counts from fetched metadata
+                    data["total_seasons"] = series_metadata.get("total_seasons", 0)
+                    data["total_episodes"] = series_metadata.get("total_episodes", 0)
+            except Exception as e:
+                logger.warning(f"Failed to fetch series metadata for {imdb_id}: {e}")
         else:
             data["time_stamp"] = (
                 f"{data['time_stamp'] // 60} Hours {data['time_stamp'] % 60} Minutes"

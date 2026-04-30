@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchWatchlist, deleteFromWatchlist, addToCompleted } from '../services/api';
 import { useSettingsStore, getGridCols, getPosterUrl } from '../stores/settingsStore';
@@ -10,11 +10,19 @@ import CastChips from '../components/CastChips';
 import MagneticButton from '../components/MagneticButton';
 import gsap from 'gsap';
 
+const formatRuntime = (mins) => {
+    if (!mins) return '';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m`;
+};
+
 export default function Watchlist() {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedItem, setSelectedItem] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [appliedSearch, setAppliedSearch] = useState('');
     const [sortBy, setSortBy] = useState('date_added');
     const gridRef = useRef(null);
     const modalRef = useRef(null);
@@ -24,9 +32,19 @@ export default function Watchlist() {
     const { showToast } = useToast();
     const lastY = useRef(0);
 
+    const loadData = useCallback(async (search = '') => {
+        try {
+            const res = await fetchWatchlist('date_added', 'desc', null, search);
+            setItems(res.data || []);
+        } catch (err) {
+            console.error('Failed to fetch watchlist:', err);
+        }
+        setLoading(false);
+    }, []);
+
     useEffect(() => {
         loadData();
-    }, []);
+    }, [loadData]);
 
     useEffect(() => {
         if (!loading && items.length > 0) {
@@ -40,11 +58,6 @@ export default function Watchlist() {
     }, [items, loading]);
 
     useEffect(() => {
-        const delayDebounceFn = setTimeout(() => {}, 300);
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchTerm]);
-
-    useEffect(() => {
         const handleTouchStart = (e) => {
             lastY.current = e.touches[0].clientY;
         };
@@ -55,7 +68,7 @@ export default function Watchlist() {
 
             if (diff > 50 && window.scrollY < 50) {
                 setLoading(true);
-                await loadData();
+                await loadData(appliedSearch);
                 setLoading(false);
             }
         };
@@ -67,23 +80,13 @@ export default function Watchlist() {
             window.removeEventListener('touchstart', handleTouchStart);
             window.removeEventListener('touchmove', handleTouchMove);
         };
-    }, []);
-
-    const loadData = async () => {
-        try {
-            const res = await fetchWatchlist(sortBy, 'desc');
-            setItems(res.data || []);
-        } catch (err) {
-            console.error('Failed to fetch watchlist:', err);
-        }
-        setLoading(false);
-    };
+    }, [appliedSearch]);
 
     const filteredAndSorted = useMemo(() => {
         let result = [...items];
 
-        if (searchTerm) {
-            const term = searchTerm.toLowerCase();
+        if (appliedSearch) {
+            const term = appliedSearch.toLowerCase();
             result = result.filter(item => {
                 const name = (item.name || '').toLowerCase();
                 const cast = (Array.isArray(item.cast) ? item.cast.join(', ') : (item.cast || '')).toLowerCase();
@@ -106,7 +109,14 @@ export default function Watchlist() {
         });
 
         return result;
-    }, [items, searchTerm, sortBy]);
+    }, [items, appliedSearch, sortBy]);
+
+    const handleSearchSubmit = (e) => {
+        if (e.key === 'Enter') {
+            setAppliedSearch(searchTerm);
+            loadData(searchTerm);
+        }
+    };
 
     const handleItemClick = (item) => {
         setSelectedItem(item);
@@ -193,7 +203,7 @@ export default function Watchlist() {
         );
     }
 
-    if (items.length === 0 && !searchTerm) {
+    if (items.length === 0 && !appliedSearch) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen pb-20 px-4">
                 <svg className="w-20 h-20 text-gray-600 mb-4" fill="currentColor" viewBox="0 0 24 24">
@@ -220,7 +230,8 @@ export default function Watchlist() {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search by name, cast, director..."
+                    onKeyDown={handleSearchSubmit}
+                    placeholder="Search... (press Enter to apply)"
                     className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-red-500/50 transition-colors"
                 />
                 <select
@@ -301,8 +312,19 @@ export default function Watchlist() {
                                         {selectedItem.content_type === 'tv' ? 'TV Series' : 'Movie'}
                                         {selectedItem.release_date && ` • ${new Date(selectedItem.release_date).getFullYear()}`}
                                         {selectedItem.rating && ` • ★ ${selectedItem.rating}`}
+                                        {selectedItem.content_type !== 'tv' && selectedItem.total_runtime && ` • ${formatRuntime(selectedItem.total_runtime)}`}
+                                        {selectedItem.content_type === 'tv' && (selectedItem.total_seasons || selectedItem.total_episodes) && (
+                                            <span className="ml-2">
+                                                {selectedItem.total_seasons ? `${selectedItem.total_seasons} Season${selectedItem.total_seasons > 1 ? 's' : ''}` : ''}
+                                                {selectedItem.total_seasons && selectedItem.total_episodes ? ' • ' : ''}
+                                                {selectedItem.total_episodes ? `${selectedItem.total_episodes} Episodes` : ''}
+                                            </span>
+                                        )}
                                     </p>
                                     {selectedItem.cast && <CastChips cast={Array.isArray(selectedItem.cast) ? selectedItem.cast : selectedItem.cast.split(',').filter(Boolean)} />}
+                                    {selectedItem.directors && selectedItem.directors.length > 0 && (
+                                        <p className="text-gray-400 text-xs mt-1">Director(s): {Array.isArray(selectedItem.directors) ? selectedItem.directors.join(', ') : selectedItem.directors}</p>
+                                    )}
                                 </div>
                             </div>
 

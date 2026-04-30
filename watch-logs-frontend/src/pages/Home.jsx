@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getTrendingMovies, getTrendingTV, searchByName } from '../services/api';
 import MovieCard from '../components/MovieCard';
 import { SkeletonGrid } from '../components/SkeletonCard';
@@ -10,12 +10,12 @@ export default function Home() {
   const [movies, setMovies] = useState([]);
   const [tvShows, setTvShows] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
+  const [rawSearchResults, setRawSearchResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
-  const [sortBy, setSortBy] = useState('popularity');
   const [filterType, setFilterType] = useState('all');
-  
+  const [sortBy, setSortBy] = useState('popularity');
+
   const { gridSize } = useSettingsStore();
   const searchInputRef = useRef(null);
   const { getCached, setCache, isStale } = useOfflineCache();
@@ -27,7 +27,7 @@ export default function Home() {
 
   const clearSearch = useCallback(() => {
     setSearchQuery('');
-    setSearchResults([]);
+    setRawSearchResults([]);
   }, []);
 
   useKeyboardShortcuts({ onSearch: focusSearch, onClear: clearSearch });
@@ -35,13 +35,13 @@ export default function Home() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      
+
       const movieCacheKey = 'trending_movies';
       const tvCacheKey = 'trending_tv';
-      
+
       const cachedMovies = getCached(movieCacheKey);
       const cachedTV = getCached(tvCacheKey);
-      
+
       if (cachedMovies && cachedTV && !isStale(movieCacheKey)) {
         setMovies(cachedMovies);
         setTvShows(cachedTV);
@@ -56,15 +56,15 @@ export default function Home() {
         ]);
         const movieData = moviesRes.data || [];
         const tvData = tvRes.data || [];
-        
+
         setCache(movieCacheKey, movieData);
         setCache(tvCacheKey, tvData);
-        
+
         setMovies(movieData);
         setTvShows(tvData);
       } catch (err) {
         console.error('Failed to fetch trending:', err);
-        
+
         if (cachedMovies) setMovies(cachedMovies);
         if (cachedTV) setTvShows(cachedTV);
       }
@@ -76,13 +76,13 @@ export default function Home() {
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
-      setSearchResults([]);
+      setRawSearchResults([]);
       return;
     }
     setSearching(true);
     try {
       const res = await searchByName(searchQuery);
-      setSearchResults(res.data || []);
+      setRawSearchResults(res.data || []);
       addSearch(searchQuery);
     } catch (err) {
       console.error('Search failed:', err);
@@ -90,13 +90,13 @@ export default function Home() {
     setSearching(false);
   };
 
-  const getSortedAndFiltered = (items) => {
-    let filtered = [...items];
-    
+  const searchResults = useMemo(() => {
+    let filtered = [...rawSearchResults];
+
     if (filterType !== 'all') {
       filtered = filtered.filter(item => item.content_type === filterType);
     }
-    
+
     if (sortBy === 'popularity') {
       // Already sorted by TMDB popularity
     } else if (sortBy === 'title') {
@@ -104,7 +104,25 @@ export default function Home() {
     } else if (sortBy === 'year') {
       filtered.sort((a, b) => (b.release_date || '').localeCompare(a.release_date || ''));
     }
-    
+
+    return filtered;
+  }, [rawSearchResults, filterType, sortBy]);
+
+  const getSortedAndFiltered = (items) => {
+    let filtered = [...items];
+
+    if (filterType !== 'all') {
+      filtered = filtered.filter(item => item.content_type === filterType);
+    }
+
+    if (sortBy === 'popularity') {
+      // Already sorted by TMDB popularity
+    } else if (sortBy === 'title') {
+      filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    } else if (sortBy === 'year') {
+      filtered.sort((a, b) => (b.release_date || '').localeCompare(a.release_date || ''));
+    }
+
     return filtered;
   };
 

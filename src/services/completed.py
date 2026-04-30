@@ -39,6 +39,19 @@ class CompletedService:
                 else None
             )
             new_data["total_episodes"] = details.get("number_of_episodes")
+            new_data["total_seasons"] = details.get("number_of_seasons")
+
+            # Fetch cast and directors
+            try:
+                credits = await movie_service.get_credits(tmdb_id, content_type)
+                new_data["cast"] = [p["name"] for p in credits.get("cast", [])[:5]]
+                new_data["directors"] = [
+                    p["name"] for p in credits.get("crew", []) if p["job"] == "Director"
+                ]
+            except Exception as e:
+                logger.warning(f"Failed to fetch credits for {tmdb_id}: {e}")
+                new_data["cast"] = []
+                new_data["directors"] = []
 
         try:
             exists_watching = await helpers.check_id_exists_for_user(

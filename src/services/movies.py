@@ -59,6 +59,38 @@ class MoviesService:
 
             combined = movie_results + tv_results
             combined = await helpers.format_tmdb_datas(combined)
+            
+            # Enrich with full metadata including cast and directors
+            import asyncio
+            async def enrich_item(item):
+                try:
+                    tmdb_id = item.get("id")
+                    content_type = item.get("content_type")
+                    if tmdb_id and content_type:
+                        # Get full details
+                        details = await self.get_details_overview(tmdb_id, content_type)
+                        if content_type == "tv":
+                            item["total_seasons"] = details.get("number_of_seasons")
+                            item["total_episodes"] = details.get("number_of_episodes")
+                        else:
+                            item["total_runtime"] = details.get("runtime") or 0
+                        
+                        # Get credits (cast and directors)
+                        credits = await self.get_credits(tmdb_id, content_type)
+                        item["cast"] = [p["name"] for p in credits.get("cast", [])[:5]]
+                        item["directors"] = [
+                            p["name"] for p in credits.get("crew", []) if p["job"] == "Director"
+                        ]
+                    return item
+                except Exception as e:
+                    logger.warning(f"Failed to enrich search item {item.get('id')}: {e}")
+                    return item
+            
+            # Enrich items concurrently (limit to first 20 for performance)
+            enrich_tasks = [enrich_item(item) for item in combined[:20]]
+            enriched = await asyncio.gather(*enrich_tasks)
+            combined[:20] = enriched
+            
             return combined
 
     @retry(
@@ -244,22 +276,36 @@ class MoviesService:
                 
                 # Enrich with season/episode counts and runtime
                 import asyncio
-                async def enrich_item(item):
+                async def enrich_item(item, content_type):
                     try:
-                        details = await self.get_details_overview(item.get("id"), type_name)
-                        if type_name == "tv":
-                            item["total_seasons"] = details.get("number_of_seasons")
-                            item["total_episodes"] = details.get("number_of_episodes")
-                        else:
-                            runtime = details.get("runtime") or 0
-                            item["total_runtime"] = runtime
+                        tmdb_id = item.get("id")
+                        if tmdb_id:
+                            details = await self.get_details_overview(tmdb_id, content_type)
+                            if content_type == "tv":
+                                item["total_seasons"] = details.get("number_of_seasons")
+                                item["total_episodes"] = details.get("number_of_episodes")
+                            else:
+                                runtime = details.get("runtime") or 0
+                                item["total_runtime"] = runtime
+                            
+                            # Fetch cast and directors
+                            try:
+                                credits = await self.get_credits(tmdb_id, content_type)
+                                item["cast"] = [p["name"] for p in credits.get("cast", [])[:5]]
+                                item["directors"] = [
+                                    p["name"] for p in credits.get("crew", []) if p["job"] == "Director"
+                                ]
+                            except Exception as e:
+                                logger.warning(f"Failed to fetch credits for trending item {tmdb_id}: {e}")
+                                item["cast"] = []
+                                item["directors"] = []
                         return item
                     except Exception as e:
                         logger.warning(f"Failed to enrich trending item {item.get('id')}: {e}")
                         return item
                 
                 # Enrich items concurrently (limit to first 20 for performance)
-                enrich_tasks = [enrich_item(item) for item in data[:20]]
+                enrich_tasks = [enrich_item(item, "movie") for item in data[:20]]
                 enriched = await asyncio.gather(*enrich_tasks)
                 data[:20] = enriched
                 

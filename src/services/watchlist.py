@@ -31,46 +31,59 @@ class WatchlistService:
                         if details.get("episode_run_time")
                         else 0
                     )
-                    new_data["release_date"] = details.get(
-                        "release_date"
-                    ) or details.get("first_air_date")
+                    new_data["release_date"] = details.get("release_date") or details.get(
+                        "first_air_date"
+                    )
                     new_data["vote_average"] = (
                         round(details.get("vote_average", 0), 1)
                         if details.get("vote_average")
                         else None
                     )
                     new_data["total_episodes"] = details.get("number_of_episodes")
+                    new_data["total_seasons"] = details.get("number_of_seasons")
 
-                exists_watching = await helpers.check_id_exists_for_user(
-                    imdb_id, "watching_list", user_id
-                )
-                exists_watchlist = await helpers.check_id_exists_for_user(
-                    imdb_id, "watch_list", user_id
-                )
-                exists_completed = await helpers.check_id_exists_for_user(
-                    imdb_id, "completed", user_id
-                )
+                    # Fetch cast and directors
+                    try:
+                        credits = await movie_service.get_credits(tmdb_id, content_type)
+                        new_data["cast"] = [p["name"] for p in credits.get("cast", [])[:5]]
+                        new_data["directors"] = [
+                            p["name"] for p in credits.get("crew", []) if p["job"] == "Director"
+                        ]
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch credits for {tmdb_id}: {e}")
+                        new_data["cast"] = []
+                        new_data["directors"] = []
 
-                if (
-                    not exists_watching
-                    and not exists_watchlist
-                    and not exists_completed
-                ):
-                    new_data["imdb_id"] = imdb_id
-                    new_data["content_type"] = content_type
-                    new_data["user_id"] = user_id
-                    new_data["created_at"] = datetime.utcnow()
+                        exists_watching = await helpers.check_id_exists_for_user(
+                            imdb_id, "watching_list", user_id
+                        )
+                        exists_watchlist = await helpers.check_id_exists_for_user(
+                            imdb_id, "watch_list", user_id
+                        )
+                        exists_completed = await helpers.check_id_exists_for_user(
+                            imdb_id, "completed", user_id
+                        )
 
-                    new_data = await helpers.serializer(new_data, field="user_id")
-                    result = db.watch_list.insert_one(new_data)
-                    return {
-                        "status": "Successful",
-                        "message": "Added to watchlist successfully",
-                        "id": str(result.inserted_id),
-                        "data": await helpers.serializer(new_data),
-                    }
-                else:
-                    return {"status": "Failed", "message": "Already in a list"}
+                        if (
+                            not exists_watching
+                            and not exists_watchlist
+                            and not exists_completed
+                        ):
+                            new_data["imdb_id"] = imdb_id
+                            new_data["content_type"] = content_type
+                            new_data["user_id"] = user_id
+                            new_data["created_at"] = datetime.utcnow()
+
+                            new_data = await helpers.serializer(new_data, field="user_id")
+                            result = db.watch_list.insert_one(new_data)
+                            return {
+                                "status": "Successful",
+                                "message": "Added to watchlist successfully",
+                                "id": str(result.inserted_id),
+                                "data": await helpers.serializer(new_data),
+                            }
+                        else:
+                            return {"status": "Failed", "message": "Already in a list"}
             except Exception as e:
                 raise e
 

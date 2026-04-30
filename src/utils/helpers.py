@@ -30,6 +30,8 @@ class HelperFunctions:
             "poster_link": f"https://image.tmdb.org/t/p/original/{data.get('poster_path')}",
             "id": data.get("id"),
             "content_type": media_type,
+            "release_date": data.get("release_date") or data.get("first_air_date"),
+            "vote_average": data.get("vote_average"),
         }
         return new_data
 

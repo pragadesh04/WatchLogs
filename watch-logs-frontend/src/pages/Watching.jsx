@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchWatching, updateProgress, deleteFromWatching, addToCompleted } from '../services/api';
+import { fetchWatching, updateProgress, deleteFromWatching, addToCompleted, getSeriesMetadata } from '../services/api';
 import { useSettingsStore, getGridCols, getPosterUrl } from '../stores/settingsStore';
 import { useStatsStore } from '../stores/statsStore';
 import { SkeletonGrid } from '../components/SkeletonCard';
@@ -9,7 +9,6 @@ import SentientCard from '../components/SentientCard';
 import CastChips from '../components/CastChips';
 import MagneticButton from '../components/MagneticButton';
 import gsap from 'gsap';
-import axios from 'axios';
 
 const OMDB_API_KEY = 'c5390a05';
 
@@ -24,25 +23,12 @@ const sanitizeSeriesData = (value, fallback = 1) => {
     if (!value) return fallback;
     if (typeof value === 'number') return Math.floor(value);
     const str = String(value);
-    // Handle dirty strings like "#episode1.1" or "#1.1" - extract only integer part
     const match = str.match(/(\d+)/);
     if (match) {
         const num = parseInt(match[1], 10);
         return isNaN(num) ? fallback : num;
     }
     return fallback;
-};
-
-const calculateSeriesProgress = (item) => {
-    if (!item) return 0;
-    const currentSeason = sanitizeSeriesData(item.current_season, 1);
-    const currentEpisode = sanitizeSeriesData(item.current_episode, 1);
-    const totalSeasons = item.total_seasons || 1;
-    const totalEpisodes = item.total_episodes || 1;
-    // Approximate progress based on current season/episode
-    const totalWatched = (currentSeason - 1) * (totalEpisodes / totalSeasons) + currentEpisode;
-    const progress = (totalWatched / totalEpisodes) * 100;
-    return Math.min(progress, 100);
 };
 
 export default function Watching() {
@@ -52,6 +38,7 @@ export default function Watching() {
     const [progress, setProgress] = useState({ minutes: '', season: '', episode: '' });
     const [updating, setUpdating] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [appliedSearch, setAppliedSearch] = useState('');
     const [sortBy, setSortBy] = useState('date_added');
     const [seriesDetails, setSeriesDetails] = useState(null);
     const [expandedSeasons, setExpandedSeasons] = useState({});
@@ -68,11 +55,27 @@ export default function Watching() {
     const { gridSize, showImages } = useSettingsStore();
     const { updateFromLists, incrementWatched } = useStatsStore();
     const { showToast } = useToast();
-    const lastY = useRef(0);
+
+    const loadData = useCallback(async (search = '') => {
+        try {
+            let res;
+            if (search.trim()) {
+                res = await searchWatching(search);
+            } else {
+                res = await fetchWatching();
+            }
+            const data = res.data || [];
+            setItems(data);
+            updateFromLists([], data, []);
+        } catch (err) {
+            console.error('Failed to fetch watching:', err);
+        }
+        setLoading(false);
+    }, [updateFromLists]);
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [loadData]);
 
     useEffect(() => {
         if (!loading && items.length > 0) {
@@ -99,43 +102,38 @@ export default function Watching() {
         });
     }, [expandedSeasons]);
 
-    const loadData = async () => {
-        try {
-            const res = await fetchWatching(sortBy, 'desc');
-            const data = res.data || [];
-            setItems(data);
-            updateFromLists([], data, []);
-        } catch (err) {
-            console.error('Failed to fetch watching:', err);
-        }
-        setLoading(false);
-    };
-
-    const loadSeriesMetadata = async (imdbId, content_type) => {
+    const loadSeriesMetadata = async (imdbId, content_type, item) => {
         if (content_type !== 'tv' && content_type !== 'series') return;
-        
+
         try {
             setSeriesDetails(null);
             setExpandedSeasons({});
             setUsingDefault(false);
-            
-            // Check localStorage for previously stored manual data
-            const savedData = localStorage.getItem(`series_${imdbId}`);
-            if (savedData) {
-                try {
-                    const parsed = JSON.parse(savedData);
-                    setSeriesDetails(parsed);
-                    return;
-                } catch (e) {
-                    localStorage.removeItem(`series_${imdbId}`);
-                }
+
+            if (item?.series_metadata) {
+                const metadata = item.series_metadata;
+                const seasons = (metadata.seasons || []).map(s => ({
+                    season: s.season,
+                    totalEpisodes: s.episode_count || s.totalEpisodes || 0,
+                    episodes: (s.episodes || []).map(ep => ({
+                        Episode: ep.episode_number || ep.Episode,
+                        Title: ep.episode_name || ep.Title
+                    }))
+                }));
+
+                const seriesData = {
+                    totalSeasons: metadata.total_seasons,
+                    totalEpisodes: metadata.total_episodes,
+                    seasons
+                };
+
+                setSeriesDetails(seriesData);
+                return;
             }
-            
-            // Use new backend API to get series metadata from TMDB
+
             try {
                 const res = await getSeriesMetadata(imdbId);
                 if (res.data && res.data.status !== "error") {
-                    // Transform backend format to frontend format
                     const seasons = (res.data.seasons || []).map(s => ({
                         season: s.season,
                         totalEpisodes: s.episode_count,
@@ -144,26 +142,22 @@ export default function Watching() {
                             Title: ep.episode_name
                         }))
                     }));
-                    
+
                     const seriesData = {
                         totalSeasons: res.data.total_seasons,
                         totalEpisodes: res.data.total_episodes,
                         seasons
                     };
-                    
+
                     setSeriesDetails(seriesData);
-                    
-                    // Save to localStorage for future use
-                    localStorage.setItem(`series_${imdbId}`, JSON.stringify(seriesData));
                     return;
                 }
             } catch (apiError) {
                 console.error('Failed to fetch from backend API:', apiError);
             }
-            
-            // Fallback: Trigger manual input
+
             setShowManualModal(true);
-            
+
         } catch (err) {
             console.error('Failed to load series metadata:', err);
             setShowManualModal(true);
@@ -173,8 +167,8 @@ export default function Watching() {
     const filteredAndSorted = useMemo(() => {
         let result = [...items];
 
-        if (searchTerm) {
-            const term = searchTerm.toLowerCase();
+        if (appliedSearch) {
+            const term = appliedSearch.toLowerCase();
             result = result.filter(item => {
                 const name = (item.name || '').toLowerCase();
                 const cast = (Array.isArray(item.cast) ? item.cast.join(', ') : (item.cast || '')).toLowerCase();
@@ -197,35 +191,38 @@ export default function Watching() {
         });
 
         return result;
-    }, [items, searchTerm, sortBy]);
+    }, [items, appliedSearch, sortBy]);
+
+    const handleSearchSubmit = (e) => {
+        if (e.key === 'Enter') {
+            setAppliedSearch(searchTerm);
+            loadData(searchTerm);
+        }
+    };
 
     const handleItemClick = async (item) => {
         setSelectedItem(item);
-        
-        // Parse existing progress with sanitization
+
         const rawSeason = item.current_season;
         const rawEpisode = item.current_episode;
         const currentSeason = sanitizeSeriesData(rawSeason, 1);
         const currentEpisode = sanitizeSeriesData(rawEpisode, 1);
         const timeStamp = item.time_stamp || '';
-        
+
         setProgress({
             minutes: timeStamp,
             season: currentSeason.toString(),
             episode: currentEpisode.toString()
         });
-        
-        // Parse hours/minutes for movie
+
         if (item.content_type !== 'tv' && item.content_type !== 'series') {
-            const runtime = item.total_runtime || 120;
             const watchedMin = item.watched_minutes || 0;
             setHours(Math.floor(watchedMin / 60));
             setMinutes(watchedMin % 60);
         }
-        
-        // Load series metadata if TV
+
         if (item.content_type === 'tv' || item.content_type === 'series') {
-            await loadSeriesMetadata(item.imdb_id, item.content_type);
+            await loadSeriesMetadata(item.imdb_id, item.content_type, item);
         } else {
             setSeriesDetails(null);
         }
@@ -284,7 +281,6 @@ export default function Watching() {
                 if (progress.season) data.season = parseInt(progress.season);
                 if (progress.episode) data.episode = parseInt(progress.episode);
             } else {
-                // Convert hours and minutes to total minutes
                 const totalMinutes = (parseInt(hours) * 60) + parseInt(minutes);
                 data.minutes = totalMinutes;
             }
@@ -297,7 +293,7 @@ export default function Watching() {
             } else {
                 closeModal();
             }
-            loadData();
+            loadData(appliedSearch);
         } catch (err) {
             console.error('Failed to update progress:', err);
         }
@@ -340,7 +336,7 @@ export default function Watching() {
         );
     }
 
-    if (items.length === 0 && !searchTerm) {
+    if (items.length === 0 && !appliedSearch) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen pb-20 px-4">
                 <svg className="w-20 h-20 text-gray-600 mb-4" fill="currentColor" viewBox="0 0 24 24">
@@ -367,7 +363,8 @@ export default function Watching() {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search by name, cast, director..."
+                    onKeyDown={handleSearchSubmit}
+                    placeholder="Search... (press Enter to apply)"
                     className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-red-500/50 transition-colors"
                 />
                 <select
@@ -458,6 +455,9 @@ export default function Watching() {
                                         )}
                                     </p>
                                     {selectedItem.cast && <CastChips cast={Array.isArray(selectedItem.cast) ? selectedItem.cast : selectedItem.cast.split(',').filter(Boolean)} />}
+                                    {selectedItem.directors && selectedItem.directors.length > 0 && (
+                                        <p className="text-gray-400 text-xs mt-1">Director(s): {Array.isArray(selectedItem.directors) ? selectedItem.directors.join(', ') : selectedItem.directors}</p>
+                                    )}
                                 </div>
                             </div>
 
@@ -548,8 +548,8 @@ export default function Watching() {
                                                             value={manualInput.seasons}
                                                             onChange={(e) => {
                                                                 const seasons = parseInt(e.target.value) || 0;
-                                                                setManualInput({ 
-                                                                    seasons: e.target.value, 
+                                                                setManualInput({
+                                                                    seasons: e.target.value,
                                                                     perSeason: Array.from({ length: seasons }, () => '')
                                                                 });
                                                                 setShowPerSeasonInput(seasons > 1);
@@ -559,7 +559,7 @@ export default function Watching() {
                                                         />
                                                     </div>
                                                 </div>
-                                                
+
                                                 {showPerSeasonInput && manualInput.perSeason.length > 0 && (
                                                     <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
                                                         <p className="text-xs text-[var(--text-secondary)]">Episodes per season:</p>
@@ -582,31 +582,31 @@ export default function Watching() {
                                                         ))}
                                                     </div>
                                                 )}
-                                                
+
                                                 <div className="flex gap-2">
                                                     <button
                                                         onClick={() => {
                                                             const seasons = parseInt(manualInput.seasons) || 99;
                                                             let perSeason = manualInput.perSeason;
-                                                            
+
                                                             if (perSeason.length === 0 || perSeason.every(e => !e)) {
                                                                 perSeason = Array.from({ length: seasons }, () => '99');
                                                             }
-                                                            
+
                                                             const seasonsData = perSeason.map((epCount, idx) => ({
                                                                 season: idx + 1,
                                                                 totalEpisodes: parseInt(epCount) || 99,
                                                                 episodes: []
                                                             }));
-                                                            
+
                                                             const totalEpisodes = seasonsData.reduce((acc, s) => acc + s.totalEpisodes, 0);
-                                                            
+
                                                             const seriesData = {
                                                                 totalSeasons: seasons,
                                                                 totalEpisodes,
                                                                 seasons: seasonsData
                                                             };
-                                                            
+
                                                             setSeriesDetails(seriesData);
                                                             localStorage.setItem(`series_${selectedItem.imdb_id}`, JSON.stringify(seriesData));
                                                             setShowManualModal(false);
@@ -701,7 +701,7 @@ export default function Watching() {
                                                     </svg>
                                                 </button>
                                                 {expandedSeasons[season.season] && season.episodes?.length > 0 && (
-                                                    <div 
+                                                    <div
                                                         ref={el => seasonRefs.current[season.season] = el}
                                                         className="px-4 pb-3 space-y-1"
                                                     >
@@ -709,11 +709,10 @@ export default function Watching() {
                                                             <div
                                                                 key={ep.Episode}
                                                                 onClick={() => setProgress({ ...progress, episode: ep.Episode })}
-                                                                className={`text-xs px-3 py-1.5 rounded cursor-pointer transition-colors ${
-                                                                    progress.episode === ep.Episode
+                                                                className={`text-xs px-3 py-1.5 rounded cursor-pointer transition-colors ${progress.episode === ep.Episode
                                                                         ? 'bg-red-600/30 text-white'
                                                                         : 'hover:bg-white/10 text-[var(--text-secondary)]'
-                                                                }`}
+                                                                    }`}
                                                             >
                                                                 {ep.Episode}: {ep.Title}
                                                             </div>
