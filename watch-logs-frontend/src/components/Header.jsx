@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import logo from '../assets/logo.svg';
+import UniverseSwitcher from './UniverseSwitcher';
 
 export default function Header() {
   return (
@@ -11,11 +12,12 @@ export default function Header() {
               <img src={logo} alt="WatchLogs Logo" className="w-full h-full object-contain" />
             </div>
             <span className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
-              Watch<span className="text-red-500">Logs</span>
+              Watch<span className="text-[var(--accent-primary)]">Logs</span>
             </span>
           </Link>
-          
+
           <div className="flex items-center gap-4">
+            <UniverseSwitcher />
           </div>
         </div>
       </div>

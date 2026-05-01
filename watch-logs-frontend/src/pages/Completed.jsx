@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchCompleted, deleteFromCompleted } from '../services/api';
 import { useSettingsStore, getGridCols, getPosterUrl } from '../stores/settingsStore';
+import { useUniverseStore } from '../stores/universeStore';
 import { useStatsStore } from '../stores/statsStore';
 import { SkeletonGrid } from '../components/SkeletonCard';
 import { useToast } from '../components/ToastProvider';
 import SentientCard from '../components/SentientCard';
+import AnimeCard from '../components/AnimeCard';
 import CastChips from '../components/CastChips';
 import MagneticButton from '../components/MagneticButton';
 import gsap from 'gsap';
@@ -24,13 +26,14 @@ export default function Completed() {
     const [searchTerm, setSearchTerm] = useState('');
     const [appliedSearch, setAppliedSearch] = useState('');
     const [sortBy, setSortBy] = useState('date_added');
+    const [animeSubTab, setAnimeSubTab] = useState('all');
     const gridRef = useRef(null);
     const modalRef = useRef(null);
     const backdropRef = useRef(null);
+    const { universe } = useUniverseStore();
     const { gridSize, showImages } = useSettingsStore();
     const { updateFromLists } = useStatsStore();
     const { showToast } = useToast();
-    const lastY = useRef(0);
 
     const loadData = async (search = '') => {
         try {
@@ -59,33 +62,14 @@ export default function Completed() {
         }
     }, [items, loading]);
 
-    useEffect(() => {
-        const handleTouchStart = (e) => {
-            lastY.current = e.touches[0].clientY;
-        };
-
-        const handleTouchMove = async (e) => {
-            const currentY = e.touches[0].clientY;
-            const diff = lastY.current - currentY;
-
-            if (diff > 50 && window.scrollY < 50) {
-                setLoading(true);
-                await loadData(appliedSearch);
-                setLoading(false);
-            }
-        };
-
-        window.addEventListener('touchstart', handleTouchStart);
-        window.addEventListener('touchmove', handleTouchMove);
-
-        return () => {
-            window.removeEventListener('touchstart', handleTouchStart);
-            window.removeEventListener('touchmove', handleTouchMove);
-        };
-    }, [appliedSearch]);
-
     const filteredAndSorted = useMemo(() => {
         let result = [...items];
+
+        if (universe === 'anime') {
+            result = result.filter(item => item.content_type === 'anime_movie' || item.content_type === 'anime_tv');
+        } else {
+            result = result.filter(item => item.content_type === 'movie' || item.content_type === 'tv' || item.content_type === 'series');
+        }
 
         if (appliedSearch) {
             const term = appliedSearch.toLowerCase();
@@ -95,6 +79,12 @@ export default function Completed() {
                 const director = (item.director || '').toLowerCase();
                 return name.includes(term) || cast.includes(term) || director.includes(term);
             });
+        }
+
+        if (universe === 'anime' && animeSubTab !== 'all') {
+            result = result.filter(item =>
+                animeSubTab === 'tv' ? item.content_type === 'anime_tv' : item.content_type === 'anime_movie'
+            );
         }
 
         result.sort((a, b) => {
@@ -111,7 +101,7 @@ export default function Completed() {
         });
 
         return result;
-    }, [items, appliedSearch, sortBy]);
+    }, [items, universe, appliedSearch, sortBy, animeSubTab]);
 
     const handleSearchSubmit = (e) => {
         if (e.key === 'Enter') {
@@ -180,9 +170,6 @@ export default function Completed() {
         }
     };
 
-    const movies = filteredAndSorted.filter(i => i.content_type === 'movie');
-    const series = filteredAndSorted.filter(i => i.content_type === 'tv' || i.content_type === 'series');
-
     if (loading) {
         return (
             <div className="pb-20 px-4 py-6">
@@ -198,11 +185,11 @@ export default function Completed() {
                 <svg className="w-20 h-20 text-gray-600 mb-4" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                 </svg>
-                <h2 className="text-xl font-semibold mb-2">No Completed Movies</h2>
-                <p className="text-[var(--text-secondary)] mb-6">Movies you've finished will appear here</p>
+                <h2 className="text-xl font-semibold mb-2">No Completed Items</h2>
+                <p className="text-[var(--text-secondary)] mb-6">Items you've finished will appear here</p>
                 <Link
                     to="/"
-                    className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                    className="px-6 py-3 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-lg transition-colors"
                 >
                     Browse Trending
                 </Link>
@@ -221,12 +208,12 @@ export default function Completed() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                     onKeyDown={handleSearchSubmit}
                     placeholder="Search... (press Enter to apply)"
-                    className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-red-500/50 transition-colors"
+                    className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-primary)/50] transition-colors"
                 />
                 <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
-                    className="px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-red-500/50"
+                    className="px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)/50]"
                 >
                     <option value="date_added">Date Added</option>
                     <option value="title">Title</option>
@@ -235,39 +222,31 @@ export default function Completed() {
                 </select>
             </div>
 
-            <div ref={gridRef}>
-                {movies.length > 0 && (
-                    <>
-                        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                            <span className="text-green-500">●</span> Movies
-                            <span className="text-sm text-[var(--text-secondary)]">({movies.length})</span>
-                        </h2>
-                        <div className={`grid ${getGridCols(gridSize)} gap-4 mb-6`}>
-                            {movies.map((item) => (
-                                <div key={item.id} className="sentient-card">
-                                    <SentientCard
-                                        item={item}
-                                        onClick={() => handleItemClick(item)}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
+            {universe === 'anime' && (
+                <div className="flex gap-2 mb-4">
+                    <button onClick={() => setAnimeSubTab('all')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'all' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>All</button>
+                    <button onClick={() => setAnimeSubTab('tv')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'tv' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>TV</button>
+                    <button onClick={() => setAnimeSubTab('movie')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'movie' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>Movies</button>
+                </div>
+            )}
 
-                {series.length > 0 && (
+            <div ref={gridRef}>
+                {filteredAndSorted.length > 0 && (
                     <>
                         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                            <span className="text-blue-500">●</span> TV Series
-                            <span className="text-sm text-[var(--text-secondary)]">({series.length})</span>
+                            <span className="text-green-500">●</span> Completed
+                            <span className="text-sm text-[var(--text-secondary)]">({filteredAndSorted.length})</span>
                         </h2>
                         <div className={`grid ${getGridCols(gridSize)} gap-4`}>
-                            {series.map((item) => (
-                                <div key={item.id} className="sentient-card">
-                                    <SentientCard
-                                        item={item}
-                                        onClick={() => handleItemClick(item)}
-                                    />
+                            {filteredAndSorted.map((item) => (
+                                <div key={item.id}>
+                                    {universe === 'anime' ? (
+                                        <AnimeCard anime={item} />
+                                    ) : (
+                                        <div onClick={() => handleItemClick(item)} className="cursor-pointer">
+                                            <SentientCard item={item} />
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -298,11 +277,10 @@ export default function Completed() {
                                 <div>
                                     <h2 className="text-2xl font-bold">{selectedItem.name}</h2>
                                     <p className="text-[var(--text-secondary)] text-sm mt-1">
-                                        {selectedItem.content_type === 'tv' ? 'TV Series' : 'Movie'}
+                                        {selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' || selectedItem.content_type === 'anime_tv' ? 'TV Series' : 'Movie'}
                                         {selectedItem.release_date && ` • ${new Date(selectedItem.release_date).getFullYear()}`}
                                         {selectedItem.rating && ` • ★ ${selectedItem.rating}`}
-                                        {selectedItem.content_type !== 'tv' && selectedItem.total_runtime && ` • ${formatRuntime(selectedItem.total_runtime)}`}
-                                        {selectedItem.content_type === 'tv' && (selectedItem.total_seasons || selectedItem.total_episodes) && (
+                                        {(selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' || selectedItem.content_type === 'anime_tv') && (selectedItem.total_seasons || selectedItem.total_episodes) && (
                                             <span className="ml-2">
                                                 {selectedItem.total_seasons ? `${selectedItem.total_seasons} Season${selectedItem.total_seasons > 1 ? 's' : ''}` : ''}
                                                 {selectedItem.total_seasons && selectedItem.total_episodes ? ' • ' : ''}

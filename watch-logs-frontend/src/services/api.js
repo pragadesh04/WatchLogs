@@ -94,11 +94,41 @@ export const deleteFromWatchlist = (imdbId) => api.delete(`/watchlist/${imdbId}`
 export const deleteFromWatching = (imdbId) => api.delete(`/watching/${imdbId}`);
 export const deleteFromCompleted = (imdbId) => api.delete(`/completed/${imdbId}`);
 
-export const updateProgress = (imdbId, data) => 
+export const updateProgress = (imdbId, data) =>
   api.patch(`/progress/${imdbId}`, data);
+
+export const moveToWatching = async (imdbId, contentType = 'movie') => {
+  await deleteFromWatchlist(imdbId);
+  return addToWatching(imdbId, 0, '', contentType);
+};
+
+export const moveToCompleted = async (imdbId, contentType = 'movie') => {
+  await deleteFromWatchlist(imdbId);
+  return addToCompleted(imdbId, contentType);
+};
+
+export const updateWatchingProgress = (imdbId, timeStamp, currentSeason, currentEpisode) => {
+  return updateProgress(imdbId, {
+    time_stamp: timeStamp,
+    current_season: currentSeason,
+    current_episode: currentEpisode,
+  });
+};
 
 export const getSeriesMetadata = (imdbId) => 
   api.get(`/details/series-metadata/${imdbId}`);
+
+export const getTrendingAnime = (type = 'all') =>
+  api.get(`/anime/trending/${type}`);
+
+export const searchAnime = (q, type = 'all') =>
+  api.get('/anime/search', { params: { q, type } });
+
+export const getAnimeDetails = (malId) =>
+  api.get(`/anime/details/${malId}`);
+
+export const getAnimeEpisodes = (malId, page = 1) =>
+  api.get(`/anime/episodes/${malId}`, { params: { page } });
 
 export const createSharedList = (listTypes, expirationDays = null) => 
   api.post('/share/create', { list_types: listTypes, expiration_days: expirationDays });

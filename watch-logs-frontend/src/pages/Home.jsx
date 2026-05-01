@@ -1,14 +1,19 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { getTrendingMovies, getTrendingTV, searchByName } from '../services/api';
+import { getTrendingAnime, searchAnime } from '../services/api';
 import MovieCard from '../components/MovieCard';
+import AnimeCard from '../components/AnimeCard';
 import { SkeletonGrid } from '../components/SkeletonCard';
 import { useSettingsStore, getGridCols } from '../stores/settingsStore';
+import { useUniverseStore } from '../stores/universeStore';
 import { useKeyboardShortcuts, useRecentSearches } from '../hooks/useSearch';
 import { useOfflineCache } from '../hooks/useOfflineCache';
 
 export default function Home() {
   const [movies, setMovies] = useState([]);
   const [tvShows, setTvShows] = useState([]);
+  const [animeTV, setAnimeTV] = useState([]);
+  const [animeMovies, setAnimeMovies] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [rawSearchResults, setRawSearchResults] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16,6 +21,7 @@ export default function Home() {
   const [filterType, setFilterType] = useState('all');
   const [sortBy, setSortBy] = useState('popularity');
 
+  const { universe } = useUniverseStore();
   const { gridSize } = useSettingsStore();
   const searchInputRef = useRef(null);
   const { getCached, setCache, isStale } = useOfflineCache();
@@ -38,35 +44,51 @@ export default function Home() {
 
       const movieCacheKey = 'trending_movies';
       const tvCacheKey = 'trending_tv';
+      const animeTvCacheKey = 'trending_anime_tv';
+      const animeMovieCacheKey = 'trending_anime_movie';
 
       const cachedMovies = getCached(movieCacheKey);
       const cachedTV = getCached(tvCacheKey);
+      const cachedAnimeTV = getCached(animeTvCacheKey);
+      const cachedAnimeMovies = getCached(animeMovieCacheKey);
 
-      if (cachedMovies && cachedTV && !isStale(movieCacheKey)) {
+      if (cachedMovies && cachedTV && cachedAnimeTV && cachedAnimeMovies && !isStale(movieCacheKey)) {
         setMovies(cachedMovies);
         setTvShows(cachedTV);
+        setAnimeTV(cachedAnimeTV);
+        setAnimeMovies(cachedAnimeMovies);
         setLoading(false);
         return;
       }
 
       try {
-        const [moviesRes, tvRes] = await Promise.all([
+        const [moviesRes, tvRes, animeTVRes, animeMovRes] = await Promise.all([
           getTrendingMovies(),
           getTrendingTV(),
+          getTrendingAnime('tv'),
+          getTrendingAnime('movie'),
         ]);
+
         const movieData = moviesRes.data || [];
         const tvData = tvRes.data || [];
+        const animeTVData = animeTVRes.data || [];
+        const animeMovieData = animeMovRes.data || [];
 
         setCache(movieCacheKey, movieData);
         setCache(tvCacheKey, tvData);
+        setCache(animeTvCacheKey, animeTVData);
+        setCache(animeMovieCacheKey, animeMovieData);
 
         setMovies(movieData);
         setTvShows(tvData);
+        setAnimeTV(animeTVData);
+        setAnimeMovies(animeMovieData);
       } catch (err) {
         console.error('Failed to fetch trending:', err);
-
         if (cachedMovies) setMovies(cachedMovies);
         if (cachedTV) setTvShows(cachedTV);
+        if (cachedAnimeTV) setAnimeTV(cachedAnimeTV);
+        if (cachedAnimeMovies) setAnimeMovies(cachedAnimeMovies);
       }
       setLoading(false);
     };
@@ -81,7 +103,9 @@ export default function Home() {
     }
     setSearching(true);
     try {
-      const res = await searchByName(searchQuery);
+      const res = universe === 'anime'
+        ? await searchAnime(searchQuery)
+        : await searchByName(searchQuery);
       setRawSearchResults(res.data || []);
       addSearch(searchQuery);
     } catch (err) {
@@ -147,7 +171,7 @@ export default function Home() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search movies... (press /)"
-            className="w-full px-4 py-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-gray-500 focus:outline-none focus:border-red-500"
+            className="w-full px-4 py-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)]"
           />
           {searchQuery && (
             <button
@@ -201,26 +225,61 @@ export default function Home() {
         <section>
           <h2 className="text-xl font-semibold mb-4">Search Results</h2>
           <div className={`grid ${getGridCols(gridSize)} gap-4`}>
-            {searchResults.map((item) => (
-              <MovieCard
-                key={item.id}
-                movie={item}
-                contentType={item.content_type || 'movie'}
-              />
+            {searchResults.map((item, idx) => (
+              <div key={item.id} className="fade-in-up" style={{ animationDelay: `${idx * 50}ms` }}>
+                {universe === 'anime' ? (
+                  <AnimeCard anime={item} />
+                ) : (
+                  <MovieCard
+                    movie={item}
+                    contentType={item.content_type || 'movie'}
+                  />
+                )}
+              </div>
             ))}
           </div>
         </section>
       ) : searchQuery ? (
         <p className="text-gray-500 text-center">No results found</p>
+      ) : universe === 'anime' ? (
+        <>
+          <section className="mb-8">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <span className="text-[var(--accent-primary)]">●</span> Currently Airing
+            </h2>
+            <div className={`grid ${getGridCols(gridSize)} gap-4`}>
+              {animeTV.map((item, idx) => (
+                <div key={item.id} className="fade-in-up" style={{ animationDelay: `${idx * 50}ms` }}>
+                  <AnimeCard anime={item} />
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <span className="text-[var(--accent-primary)]">●</span> Anime Movies
+            </h2>
+            <div className={`grid ${getGridCols(gridSize)} gap-4`}>
+              {animeMovies.map((item, idx) => (
+                <div key={item.id} className="fade-in-up" style={{ animationDelay: `${idx * 50}ms` }}>
+                  <AnimeCard anime={item} />
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
       ) : (
         <>
           <section className="mb-8">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <span className="text-red-500">●</span> Trending Movies
+              <span className="text-[var(--accent-primary)]">●</span> Trending Movies
             </h2>
             <div className={`grid ${getGridCols(gridSize)} gap-4`}>
-              {getSortedAndFiltered(movies).map((movie) => (
-                <MovieCard key={movie.id} movie={movie} contentType={movie.content_type || 'movie'} />
+              {getSortedAndFiltered(movies).map((movie, idx) => (
+                <div key={movie.id} className="fade-in-up" style={{ animationDelay: `${idx * 50}ms` }}>
+                  <MovieCard movie={movie} contentType={movie.content_type || 'movie'} />
+                </div>
               ))}
             </div>
           </section>
@@ -230,8 +289,10 @@ export default function Home() {
               <span className="text-blue-500">●</span> Trending TV Shows
             </h2>
             <div className={`grid ${getGridCols(gridSize)} gap-4`}>
-              {getSortedAndFiltered(tvShows).map((show) => (
-                <MovieCard key={show.id} movie={show} contentType={show.content_type || 'tv'} />
+              {getSortedAndFiltered(tvShows).map((show, idx) => (
+                <div key={show.id} className="fade-in-up" style={{ animationDelay: `${idx * 50}ms` }}>
+                  <MovieCard movie={show} contentType={show.content_type || 'tv'} />
+                </div>
               ))}
             </div>
           </section>

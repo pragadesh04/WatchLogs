@@ -1,69 +1,62 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchWatching, updateProgress, deleteFromWatching, addToCompleted, getSeriesMetadata } from '../services/api';
+import { fetchWatching, deleteFromWatching, updateWatchingProgress, moveToCompleted } from '../services/api';
 import { useSettingsStore, getGridCols, getPosterUrl } from '../stores/settingsStore';
+import { useUniverseStore } from '../stores/universeStore';
 import { useStatsStore } from '../stores/statsStore';
 import { SkeletonGrid } from '../components/SkeletonCard';
 import { useToast } from '../components/ToastProvider';
 import SentientCard from '../components/SentientCard';
+import AnimeCard from '../components/AnimeCard';
 import CastChips from '../components/CastChips';
 import MagneticButton from '../components/MagneticButton';
 import gsap from 'gsap';
 
-const OMDB_API_KEY = 'c5390a05';
-
-const formatRuntime = (runtime) => {
-    if (!runtime) return '';
-    const hours = Math.floor(runtime / 60);
-    const mins = runtime % 60;
-    return `${hours}h ${mins}m`;
+const formatRuntime = (mins) => {
+    if (!mins) return '';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m`;
 };
 
-const sanitizeSeriesData = (value, fallback = 1) => {
-    if (!value) return fallback;
-    if (typeof value === 'number') return Math.floor(value);
-    const str = String(value);
-    const match = str.match(/(\d+)/);
-    if (match) {
-        const num = parseInt(match[1], 10);
-        return isNaN(num) ? fallback : num;
-    }
-    return fallback;
+const sanitizeSeriesData = (value, fallback = '?') => {
+    if (value === null || value === undefined || value === '') return fallback;
+    const num = parseInt(value);
+    return isNaN(num) ? fallback : num;
 };
 
 export default function Watching() {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedItem, setSelectedItem] = useState(null);
-    const [progress, setProgress] = useState({ minutes: '', season: '', episode: '' });
-    const [updating, setUpdating] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [appliedSearch, setAppliedSearch] = useState('');
     const [sortBy, setSortBy] = useState('date_added');
-    const [seriesDetails, setSeriesDetails] = useState(null);
-    const [expandedSeasons, setExpandedSeasons] = useState({});
+    const [animeSubTab, setAnimeSubTab] = useState('all');
     const [hours, setHours] = useState(0);
     const [minutes, setMinutes] = useState(0);
+    const [progress, setProgress] = useState({ season: '', episode: '' });
+    const [seriesDetails, setSeriesDetails] = useState(null);
+    const [animeEpisodes, setAnimeEpisodes] = useState([]);
+    const [animeEpLoading, setAnimeEpLoading] = useState(false);
     const [showManualModal, setShowManualModal] = useState(false);
     const [manualInput, setManualInput] = useState({ seasons: '', perSeason: [] });
     const [showPerSeasonInput, setShowPerSeasonInput] = useState(false);
     const [usingDefault, setUsingDefault] = useState(false);
-    const seasonRefs = useRef({});
+    const [updating, setUpdating] = useState(false);
     const gridRef = useRef(null);
     const modalRef = useRef(null);
     const backdropRef = useRef(null);
+    const seasonRefs = useRef({});
+    const [expandedSeasons, setExpandedSeasons] = useState({});
+    const { universe } = useUniverseStore();
     const { gridSize, showImages } = useSettingsStore();
-    const { updateFromLists, incrementWatched } = useStatsStore();
+    const { updateFromLists } = useStatsStore();
     const { showToast } = useToast();
 
-    const loadData = useCallback(async (search = '') => {
+    const loadData = async (search = '') => {
         try {
-            let res;
-            if (search.trim()) {
-                res = await searchWatching(search);
-            } else {
-                res = await fetchWatching();
-            }
+            const res = await fetchWatching('date_added', 'desc', null, search);
             const data = res.data || [];
             setItems(data);
             updateFromLists([], data, []);
@@ -71,11 +64,11 @@ export default function Watching() {
             console.error('Failed to fetch watching:', err);
         }
         setLoading(false);
-    }, [updateFromLists]);
+    };
 
     useEffect(() => {
         loadData();
-    }, [loadData]);
+    }, []);
 
     useEffect(() => {
         if (!loading && items.length > 0) {
@@ -89,83 +82,90 @@ export default function Watching() {
     }, [items, loading]);
 
     useEffect(() => {
-        Object.entries(expandedSeasons).forEach(([season, isExpanded]) => {
-            const el = seasonRefs.current[season];
-            if (el) {
-                if (isExpanded) {
-                    gsap.fromTo(el,
-                        { height: 0, opacity: 0 },
-                        { height: 'auto', opacity: 1, duration: 0.3, ease: 'power2.out' }
-                    );
-                }
-            }
-        });
-    }, [expandedSeasons]);
-
-    const loadSeriesMetadata = async (imdbId, content_type, item) => {
-        if (content_type !== 'tv' && content_type !== 'series') return;
-
-        try {
-            setSeriesDetails(null);
-            setExpandedSeasons({});
-            setUsingDefault(false);
-
-            if (item?.series_metadata) {
-                const metadata = item.series_metadata;
-                const seasons = (metadata.seasons || []).map(s => ({
-                    season: s.season,
-                    totalEpisodes: s.episode_count || s.totalEpisodes || 0,
-                    episodes: (s.episodes || []).map(ep => ({
-                        Episode: ep.episode_number || ep.Episode,
-                        Title: ep.episode_name || ep.Title
-                    }))
-                }));
-
-                const seriesData = {
-                    totalSeasons: metadata.total_seasons,
-                    totalEpisodes: metadata.total_episodes,
-                    seasons
-                };
-
-                setSeriesDetails(seriesData);
-                return;
-            }
-
-            try {
-                const res = await getSeriesMetadata(imdbId);
-                if (res.data && res.data.status !== "error") {
-                    const seasons = (res.data.seasons || []).map(s => ({
-                        season: s.season,
-                        totalEpisodes: s.episode_count,
-                        episodes: (s.episodes || []).map(ep => ({
-                            Episode: ep.episode_number,
-                            Title: ep.episode_name
-                        }))
-                    }));
-
-                    const seriesData = {
-                        totalSeasons: res.data.total_seasons,
-                        totalEpisodes: res.data.total_episodes,
-                        seasons
-                    };
-
-                    setSeriesDetails(seriesData);
-                    return;
-                }
-            } catch (apiError) {
-                console.error('Failed to fetch from backend API:', apiError);
-            }
-
-            setShowManualModal(true);
-
-        } catch (err) {
-            console.error('Failed to load series metadata:', err);
-            setShowManualModal(true);
+        if (selectedItem && selectedItem.content_type !== 'tv' && selectedItem.content_type !== 'series') {
+            setHours(Math.floor((selectedItem.time_stamp || 0) / 60));
+            setMinutes((selectedItem.time_stamp || 0) % 60);
         }
+    }, [selectedItem]);
+
+    useEffect(() => {
+        if (selectedItem && (selectedItem.content_type === 'tv' || selectedItem.content_type === 'series')) {
+            const cached = localStorage.getItem(`series_${selectedItem.imdb_id}`);
+            if (cached) {
+                try {
+                    setSeriesDetails(JSON.parse(cached));
+                    setUsingDefault(false);
+                } catch {
+                    fetchSeriesData(selectedItem);
+                }
+            } else {
+                fetchSeriesData(selectedItem);
+            }
+        } else {
+            setSeriesDetails(null);
+        }
+    }, [selectedItem]);
+
+    useEffect(() => {
+        if (selectedItem && selectedItem.content_type === 'anime_tv') {
+            loadAnimeEpisodes(selectedItem.imdb_id);
+        } else {
+            setAnimeEpisodes([]);
+        }
+    }, [selectedItem]);
+
+    const fetchSeriesData = async (item) => {
+        try {
+            const { getSeriesDetails } = await import('../services/api');
+            const res = await getSeriesDetails(item.imdb_id);
+            if (res?.data) {
+                setSeriesDetails(res.data);
+                localStorage.setItem(`series_${item.imdb_id}`, JSON.stringify(res.data));
+                setUsingDefault(false);
+            } else {
+                useDefaultSeries(item);
+            }
+        } catch {
+            useDefaultSeries(item);
+        }
+    };
+
+    const useDefaultSeries = (item) => {
+        const seriesData = {
+            totalSeasons: 99,
+            totalEpisodes: 99,
+            seasons: Array.from({ length: 99 }, (_, i) => ({
+                season: i + 1,
+                totalEpisodes: 99,
+                episodes: []
+            }))
+        };
+        setSeriesDetails(seriesData);
+        localStorage.setItem(`series_${item.imdb_id}`, JSON.stringify(seriesData));
+        setUsingDefault(true);
+    };
+
+    const loadAnimeEpisodes = async (imdbId) => {
+        setAnimeEpLoading(true);
+        try {
+            const { getAnimeEpisodes } = await import('../services/api');
+            const malId = parseInt(imdbId.replace('mal_', ''));
+            const res = await getAnimeEpisodes(malId, 1);
+            setAnimeEpisodes(res.episodes || []);
+        } catch {
+            setAnimeEpisodes([]);
+        }
+        setAnimeEpLoading(false);
     };
 
     const filteredAndSorted = useMemo(() => {
         let result = [...items];
+
+        if (universe === 'anime') {
+            result = result.filter(item => item.content_type === 'anime_movie' || item.content_type === 'anime_tv');
+        } else {
+            result = result.filter(item => item.content_type === 'movie' || item.content_type === 'tv' || item.content_type === 'series');
+        }
 
         if (appliedSearch) {
             const term = appliedSearch.toLowerCase();
@@ -175,6 +175,12 @@ export default function Watching() {
                 const director = (item.director || '').toLowerCase();
                 return name.includes(term) || cast.includes(term) || director.includes(term);
             });
+        }
+
+        if (universe === 'anime' && animeSubTab !== 'all') {
+            result = result.filter(item =>
+                animeSubTab === 'tv' ? item.content_type === 'anime_tv' : item.content_type === 'anime_movie'
+            );
         }
 
         result.sort((a, b) => {
@@ -191,7 +197,7 @@ export default function Watching() {
         });
 
         return result;
-    }, [items, appliedSearch, sortBy]);
+    }, [items, universe, appliedSearch, sortBy, animeSubTab]);
 
     const handleSearchSubmit = (e) => {
         if (e.key === 'Enter') {
@@ -200,32 +206,9 @@ export default function Watching() {
         }
     };
 
-    const handleItemClick = async (item) => {
+    const handleItemClick = (item) => {
         setSelectedItem(item);
-
-        const rawSeason = item.current_season;
-        const rawEpisode = item.current_episode;
-        const currentSeason = sanitizeSeriesData(rawSeason, 1);
-        const currentEpisode = sanitizeSeriesData(rawEpisode, 1);
-        const timeStamp = item.time_stamp || '';
-
-        setProgress({
-            minutes: timeStamp,
-            season: currentSeason.toString(),
-            episode: currentEpisode.toString()
-        });
-
-        if (item.content_type !== 'tv' && item.content_type !== 'series') {
-            const watchedMin = item.watched_minutes || 0;
-            setHours(Math.floor(watchedMin / 60));
-            setMinutes(watchedMin % 60);
-        }
-
-        if (item.content_type === 'tv' || item.content_type === 'series') {
-            await loadSeriesMetadata(item.imdb_id, item.content_type, item);
-        } else {
-            setSeriesDetails(null);
-        }
+        setProgress({ season: '', episode: '' });
 
         gsap.to(gridRef.current, {
             scale: 0.9,
@@ -270,34 +253,58 @@ export default function Watching() {
             gsap.to(backdropRef.current, { opacity: 0, duration: 0.2 });
         }
 
-        setTimeout(() => setSelectedItem(null), 300);
+        setTimeout(() => {
+            setSelectedItem(null);
+            setSeriesDetails(null);
+            setAnimeEpisodes([]);
+            setShowManualModal(false);
+            setUsingDefault(false);
+        }, 300);
     };
 
-    const handleUpdateProgress = async () => {
+    const handleSaveProgress = async () => {
+        if (!selectedItem) return;
         setUpdating(true);
+
         try {
-            const data = {};
+            let timeStamp = 0;
+            let currentSeason = null;
+            let currentEpisode = null;
+
             if (selectedItem.content_type === 'tv' || selectedItem.content_type === 'series') {
-                if (progress.season) data.season = parseInt(progress.season);
-                if (progress.episode) data.episode = parseInt(progress.episode);
+                currentSeason = sanitizeSeriesData(progress.season, 1);
+                currentEpisode = sanitizeSeriesData(progress.episode, 1);
+            } else if (selectedItem.content_type === 'anime_tv') {
+                currentEpisode = sanitizeSeriesData(progress.episode, 1);
             } else {
-                const totalMinutes = (parseInt(hours) * 60) + parseInt(minutes);
-                data.minutes = totalMinutes;
+                timeStamp = hours * 60 + minutes;
             }
 
-            const res = await updateProgress(selectedItem.imdb_id, data);
+            await updateWatchingProgress(
+                selectedItem.imdb_id,
+                timeStamp,
+                currentSeason,
+                currentEpisode
+            );
 
-            if (res.data?.action === 'completed') {
-                showToast(`"${selectedItem.name}" completed!`, 'success');
-                closeModal();
-            } else {
-                closeModal();
-            }
-            loadData(appliedSearch);
+            showToast('Progress updated!', 'success');
+            closeModal();
         } catch (err) {
             console.error('Failed to update progress:', err);
         }
         setUpdating(false);
+    };
+
+    const handleMoveToCompleted = async (e, imdbId, name) => {
+        e.stopPropagation();
+        try {
+            await moveToCompleted(imdbId);
+            setItems(items.filter(item => item.imdb_id !== imdbId));
+            showToast(`Moved "${name}" to Completed`, 'success');
+            closeModal();
+        } catch (err) {
+            console.error('Failed to move to completed:', err);
+        }
     };
 
     const handleDelete = async (e, imdbId, name) => {
@@ -306,31 +313,16 @@ export default function Watching() {
             await deleteFromWatching(imdbId);
             setItems(items.filter(item => item.imdb_id !== imdbId));
             showToast(`Removed "${name}" from Watching`, 'success');
+            closeModal();
         } catch (err) {
             console.error('Failed to delete:', err);
         }
     };
 
-    const handleMoveToCompleted = async (e, imdbId, name) => {
-        e.stopPropagation();
-        try {
-            await addToCompleted(imdbId);
-            setItems(items.filter(item => item.imdb_id !== imdbId));
-            closeModal();
-            incrementWatched();
-            showToast(`Moved "${name}" to Completed`, 'success');
-        } catch (err) {
-            console.error('Failed to move to completed:', err);
-        }
-    };
-
-    const movies = filteredAndSorted.filter(i => i.content_type === 'movie');
-    const series = filteredAndSorted.filter(i => i.content_type === 'tv' || i.content_type === 'series');
-
     if (loading) {
         return (
             <div className="pb-20 px-4 py-6">
-                <div className="h-8 w-40 bg-[var(--bg-card)] rounded mb-6 animate-pulse" />
+                <div className="h-8 w-32 bg-[var(--bg-card)] rounded mb-6 animate-pulse" />
                 <SkeletonGrid count={10} gridCols={getGridCols(gridSize)} />
             </div>
         );
@@ -340,13 +332,13 @@ export default function Watching() {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen pb-20 px-4">
                 <svg className="w-20 h-20 text-gray-600 mb-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
                 </svg>
                 <h2 className="text-xl font-semibold mb-2">Nothing in Progress</h2>
-                <p className="text-[var(--text-secondary)] mb-6">Start watching something</p>
+                <p className="text-[var(--text-secondary)] mb-6">Movies and shows you're watching will appear here</p>
                 <Link
                     to="/"
-                    className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                    className="px-6 py-3 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-lg transition-colors"
                 >
                     Browse Trending
                 </Link>
@@ -356,7 +348,7 @@ export default function Watching() {
 
     return (
         <div className="pb-20 px-4 py-6 relative">
-            <h1 className="text-2xl font-bold mb-6">Currently Watching</h1>
+            <h1 className="text-2xl font-bold mb-6">Watching</h1>
 
             <div className="flex gap-2 mb-4">
                 <input
@@ -365,12 +357,12 @@ export default function Watching() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                     onKeyDown={handleSearchSubmit}
                     placeholder="Search... (press Enter to apply)"
-                    className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-red-500/50 transition-colors"
+                    className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-primary)/50] transition-colors"
                 />
                 <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
-                    className="px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-red-500/50"
+                    className="px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)/50]"
                 >
                     <option value="date_added">Date Added</option>
                     <option value="title">Title</option>
@@ -379,46 +371,33 @@ export default function Watching() {
                 </select>
             </div>
 
-            <div ref={gridRef}>
-                {movies.length > 0 && (
-                    <>
-                        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                            <span className="text-red-500">●</span> Movies
-                            <span className="text-sm text-[var(--text-secondary)]">({movies.length})</span>
-                        </h2>
-                        <div className={`grid ${getGridCols(gridSize)} gap-4 mb-6`}>
-                            {movies.map((item) => (
-                                <div key={item.id} className="sentient-card">
-                                    <SentientCard
-                                        item={item}
-                                        onClick={() => handleItemClick(item)}
-                                        showProgress
-                                        progress={item.time_stamp ? Math.min((item.time_stamp / 120) * 100, 100) : 0}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
+            {universe === 'anime' && (
+                <div className="flex gap-2 mb-4">
+                    <button onClick={() => setAnimeSubTab('all')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'all' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>All</button>
+                    <button onClick={() => setAnimeSubTab('tv')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'tv' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>TV</button>
+                    <button onClick={() => setAnimeSubTab('movie')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'movie' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>Movies</button>
+                </div>
+            )}
 
-                {series.length > 0 && (
-                    <>
-                        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                            <span className="text-blue-500">●</span> TV Series
-                            <span className="text-sm text-[var(--text-secondary)]">({series.length})</span>
-                        </h2>
-                        <div className={`grid ${getGridCols(gridSize)} gap-4`}>
-                            {series.map((item) => (
-                                <div key={item.id} className="sentient-card">
-                                    <SentientCard
-                                        item={item}
-                                        onClick={() => handleItemClick(item)}
-                                        showProgress={false}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </>
+            <div ref={gridRef}>
+                {filteredAndSorted.length > 0 && (
+                    <div className={`grid ${getGridCols(gridSize)} gap-4`}>
+                        {filteredAndSorted.map((item) => (
+                            <div key={item.id}>
+                                {universe === 'anime' ? (
+                                    <AnimeCard anime={item} />
+                                ) : (
+                                    <div onClick={() => handleItemClick(item)} className="cursor-pointer">
+                                        <SentientCard
+                                            item={item}
+                                            showProgress
+                                            progress={item.time_stamp ? Math.min((item.time_stamp / 120) * 100, 100) : 0}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 )}
             </div>
 
@@ -445,10 +424,10 @@ export default function Watching() {
                                 <div>
                                     <h2 className="text-xl font-bold">{selectedItem.name}</h2>
                                     <p className="text-[var(--text-secondary)] text-sm mt-1">
-                                        {selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' ? 'TV Series' : 'Movie'}
+                                        {selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' || selectedItem.content_type === 'anime_tv' ? 'TV Series' : 'Movie'}
                                         {selectedItem.release_date && ` • ${new Date(selectedItem.release_date).getFullYear()}`}
-                                        {selectedItem.content_type !== 'tv' && selectedItem.content_type !== 'series' && selectedItem.total_runtime && ` • ${formatRuntime(selectedItem.total_runtime)}`}
-                                        {(selectedItem.content_type === 'tv' || selectedItem.content_type === 'series') && (
+                                        {selectedItem.rating && ` • ★ ${selectedItem.rating}`}
+                                        {(selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' || selectedItem.content_type === 'anime_tv') && (
                                             <span className="ml-2">
                                                 {`S${sanitizeSeriesData(selectedItem.current_season, '?')}E${sanitizeSeriesData(selectedItem.current_episode, '?')}`}
                                             </span>
@@ -464,74 +443,108 @@ export default function Watching() {
                             <p className="text-[var(--text-secondary)] mb-4">{selectedItem.overview || 'No overview available.'}</p>
 
                             {selectedItem.release_date && new Date(selectedItem.release_date) > new Date() && (
-                                <div className="mb-4 px-3 py-2 bg-red-600/20 border border-red-500/30 rounded-lg flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-red-500 rounded-full pulse-badge" />
-                                    <span className="text-red-400 text-sm font-medium">Upcoming • Releases {new Date(selectedItem.release_date).toLocaleDateString()}</span>
+                                <div className="mb-4 px-3 py-2 bg-[var(--accent-primary)/20] border border-[var(--accent-primary)/30] rounded-lg flex items-center gap-2">
+                                    <span className="w-2 h-2 bg-[var(--accent-primary)] rounded-full pulse-badge" />
+                                    <span className="text-[var(--accent-primary)/90] text-sm font-medium">Upcoming • Releases {new Date(selectedItem.release_date).toLocaleDateString()}</span>
                                 </div>
                             )}
 
                             <div className="bg-[var(--bg-secondary)] rounded-xl p-4 mb-4">
                                 <h3 className="text-sm font-semibold mb-3">Update Progress</h3>
-                                {selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' ? (
+
+                                {selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' || selectedItem.content_type === 'anime_tv' ? (
                                     <div>
-                                        {seriesDetails ? (
+                                        {seriesDetails || selectedItem.content_type === 'anime_tv' ? (
                                             <>
-                                                <div className="flex gap-3 mb-3">
-                                                    <div className="flex-1">
-                                                        <label className="text-xs text-[var(--text-secondary)]">Season</label>
-                                                        <select
-                                                            value={progress.season}
-                                                            onChange={(e) => {
-                                                                setProgress({ ...progress, season: e.target.value, episode: '' });
-                                                                setExpandedSeasons({ [e.target.value]: true });
-                                                            }}
-                                                            className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-white mt-1 cursor-pointer"
-                                                        >
-                                                            <option value="">Select Season</option>
-                                                            {seriesDetails.seasons.map((s) => (
-                                                                <option key={s.season} value={s.season}>
-                                                                    Season {s.season} - {s.totalEpisodes} episodes
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <label className="text-xs text-[var(--text-secondary)]">Episode</label>
-                                                        <select
-                                                            value={progress.episode}
-                                                            onChange={(e) => setProgress({ ...progress, episode: e.target.value })}
-                                                            className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-white mt-1 cursor-pointer"
-                                                        >
-                                                            <option value="">Select Episode</option>
-                                                            {(() => {
-                                                                const selectedSeason = seriesDetails.seasons.find(
-                                                                    s => s.season.toString() === progress.season
-                                                                );
-                                                                if (selectedSeason?.episodes?.length > 0) {
-                                                                    return selectedSeason.episodes.map((ep) => {
-                                                                        const epNum = sanitizeSeriesData(ep.Episode, ep.Episode);
-                                                                        return (
-                                                                            <option key={ep.Episode} value={epNum}>
-                                                                                {epNum}: {ep.Title}
+                                                {selectedItem.content_type !== 'anime_tv' && (
+                                                    <div className="flex gap-3 mb-3">
+                                                        <div className="flex-1">
+                                                            <label className="text-xs text-[var(--text-secondary)]">Season</label>
+                                                            <select
+                                                                value={progress.season}
+                                                                onChange={(e) => {
+                                                                    setProgress({ ...progress, season: e.target.value, episode: '' });
+                                                                    setExpandedSeasons({ [e.target.value]: true });
+                                                                }}
+                                                                className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-white mt-1 cursor-pointer"
+                                                            >
+                                                                <option value="">Select Season</option>
+                                                                {seriesDetails?.seasons.map((s) => (
+                                                                    <option key={s.season} value={s.season}>
+                                                                        Season {s.season} - {s.totalEpisodes} episodes
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            <label className="text-xs text-[var(--text-secondary)]">Episode</label>
+                                                            <select
+                                                                value={progress.episode}
+                                                                onChange={(e) => setProgress({ ...progress, episode: e.target.value })}
+                                                                className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-white mt-1 cursor-pointer"
+                                                            >
+                                                                <option value="">Select Episode</option>
+                                                                {(() => {
+                                                                    if (selectedItem.content_type === 'anime_tv' && animeEpisodes.length > 0) {
+                                                                        return animeEpisodes.map((ep) => (
+                                                                            <option key={ep.mal_id || ep.episode_id} value={ep.mal_id || ep.episode_id}>
+                                                                                {ep.mal_id || ep.episode_id}: {ep.title || 'Episode'}
                                                                             </option>
-                                                                        );
-                                                                    });
-                                                                }
-                                                                if (selectedSeason) {
-                                                                    return Array.from(
-                                                                        { length: selectedSeason.totalEpisodes },
-                                                                        (_, i) => (
-                                                                            <option key={i + 1} value={i + 1}>
-                                                                                Episode {i + 1}
-                                                                            </option>
-                                                                        )
+                                                                        ));
+                                                                    }
+                                                                    const selectedSeason = seriesDetails?.seasons.find(
+                                                                        s => s.season.toString() === progress.season
                                                                     );
-                                                                }
-                                                                return null;
-                                                            })()}
-                                                        </select>
+                                                                    if (selectedSeason?.episodes?.length > 0) {
+                                                                        return selectedSeason.episodes.map((ep) => (
+                                                                            <option key={ep.Episode} value={ep.Episode}>
+                                                                                {ep.Episode}: {ep.Title}
+                                                                            </option>
+                                                                        ));
+                                                                    }
+                                                                    if (selectedSeason) {
+                                                                        return Array.from(
+                                                                            { length: selectedSeason.totalEpisodes },
+                                                                            (_, i) => (
+                                                                                <option key={i + 1} value={i + 1}>
+                                                                                    Episode {i + 1}
+                                                                                </option>
+                                                                            )
+                                                                        );
+                                                                    }
+                                                                    return null;
+                                                                })()}
+                                                            </select>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
+
+                                                {selectedItem.content_type === 'anime_tv' && (
+                                                    <div className="mb-3">
+                                                        <label className="text-xs text-[var(--text-secondary)]">Episode</label>
+                                                        {animeEpLoading ? (
+                                                            <div className="text-center py-2 text-[var(--text-secondary)]">Loading episodes...</div>
+                                                        ) : animeEpisodes.length > 0 ? (
+                                                            <div className="max-h-32 overflow-y-auto custom-scrollbar space-y-1">
+                                                                {animeEpisodes.map((ep) => (
+                                                                    <div
+                                                                        key={ep.mal_id || ep.episode_id}
+                                                                        onClick={() => setProgress({ ...progress, episode: (ep.mal_id || ep.episode_id)?.toString() || '' })}
+                                                                        className={`text-xs px-3 py-1.5 rounded cursor-pointer transition-colors ${progress.episode === (ep.mal_id || ep.episode_id)?.toString()
+                                                                                ? 'bg-[var(--accent-primary)/30] text-white'
+                                                                                : 'hover:bg-white/10 text-[var(--text-secondary)]'
+                                                                            }`}
+                                                                    >
+                                                                        Ep {ep.mal_id || ep.episode_id}: {ep.title || 'Episode'}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-xs text-[var(--text-secondary)]">No episode data available</p>
+                                                        )}
+                                                    </div>
+                                                )}
+
                                                 {usingDefault && (
                                                     <p className="text-xs text-yellow-500 mb-2">Using default metadata (99/99)</p>
                                                 )}
@@ -611,25 +624,14 @@ export default function Watching() {
                                                             localStorage.setItem(`series_${selectedItem.imdb_id}`, JSON.stringify(seriesData));
                                                             setShowManualModal(false);
                                                         }}
-                                                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm"
+                                                        className="px-4 py-2 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-lg text-sm"
                                                     >
                                                         OK
                                                     </button>
                                                     <button
                                                         onClick={() => {
-                                                            const seriesData = {
-                                                                totalSeasons: 99,
-                                                                totalEpisodes: 99,
-                                                                seasons: Array.from({ length: 99 }, (_, i) => ({
-                                                                    season: i + 1,
-                                                                    totalEpisodes: 99,
-                                                                    episodes: []
-                                                                }))
-                                                            };
-                                                            setSeriesDetails(seriesData);
-                                                            localStorage.setItem(`series_${selectedItem.imdb_id}`, JSON.stringify(seriesData));
+                                                            useDefaultSeries(selectedItem);
                                                             setShowManualModal(false);
-                                                            setUsingDefault(true);
                                                         }}
                                                         className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-secondary)] rounded-lg text-sm"
                                                     >
@@ -639,7 +641,7 @@ export default function Watching() {
                                             </div>
                                         ) : (
                                             <div className="text-center py-4">
-                                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto mb-2"></div>
+                                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--accent-primary)] mx-auto mb-2"></div>
                                                 <p className="text-sm text-[var(--text-secondary)]">Loading series data...</p>
                                             </div>
                                         )}
@@ -675,80 +677,34 @@ export default function Watching() {
                                 )}
                             </div>
 
-                            {seriesDetails && selectedItem && (selectedItem.content_type === 'tv' || selectedItem.content_type === 'series') && (
-                                <div className="mb-4">
-                                    <h3 className="text-sm font-semibold mb-2">Season Details</h3>
-                                    <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                                        {seriesDetails.seasons.map((season) => (
-                                            <div key={season.season} className="backdrop-blur-xl bg-white/5 rounded-lg overflow-hidden">
-                                                <button
-                                                    onClick={() => setExpandedSeasons(prev => ({
-                                                        ...prev,
-                                                        [season.season]: !prev[season.season]
-                                                    }))}
-                                                    className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-white/5 transition-colors cursor-pointer"
-                                                >
-                                                    <span className="text-sm font-medium">
-                                                        Season {season.season} - {season.totalEpisodes} episodes
-                                                    </span>
-                                                    <svg
-                                                        className={`w-4 h-4 transition-transform ${expandedSeasons[season.season] ? 'rotate-180' : ''}`}
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                    </svg>
-                                                </button>
-                                                {expandedSeasons[season.season] && season.episodes?.length > 0 && (
-                                                    <div
-                                                        ref={el => seasonRefs.current[season.season] = el}
-                                                        className="px-4 pb-3 space-y-1"
-                                                    >
-                                                        {season.episodes.map((ep) => (
-                                                            <div
-                                                                key={ep.Episode}
-                                                                onClick={() => setProgress({ ...progress, episode: ep.Episode })}
-                                                                className={`text-xs px-3 py-1.5 rounded cursor-pointer transition-colors ${progress.episode === ep.Episode
-                                                                        ? 'bg-red-600/30 text-white'
-                                                                        : 'hover:bg-white/10 text-[var(--text-secondary)]'
-                                                                    }`}
-                                                            >
-                                                                {ep.Episode}: {ep.Title}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                            <div className="flex gap-3 mb-3">
+                                <MagneticButton
+                                    onClick={handleSaveProgress}
+                                    disabled={updating}
+                                    className="w-full py-3 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-xl disabled:opacity-50"
+                                >
+                                    {updating ? 'Saving...' : 'Save Progress'}
+                                </MagneticButton>
+                            </div>
 
-                            <MagneticButton
-                                onClick={handleUpdateProgress}
-                                disabled={updating}
-                                className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl disabled:opacity-50 mb-3"
-                            >
-                                {updating ? 'Saving...' : 'Save Progress'}
-                            </MagneticButton>
+                            <div className="flex gap-3">
+                                <MagneticButton
+                                    onClick={(e) => handleMoveToCompleted(e, selectedItem.imdb_id, selectedItem.name)}
+                                    className="flex-1 py-3 bg-green-600/90 hover:bg-green-700 rounded-xl flex items-center justify-center gap-2"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Mark Completed
+                                </MagneticButton>
 
-                            <MagneticButton
-                                onClick={(e) => handleMoveToCompleted(e, selectedItem.imdb_id, selectedItem.name)}
-                                className="w-full py-3 bg-green-600/90 hover:bg-green-700 rounded-xl flex items-center justify-center gap-2 mb-3"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                                Mark Completed
-                            </MagneticButton>
-
-                            <MagneticButton
-                                onClick={(e) => handleDelete(e, selectedItem.imdb_id, selectedItem.name)}
-                                className="w-full py-3 bg-[var(--bg-card)] hover:bg-red-600/30 border border-[var(--border-color)] rounded-xl transition-colors"
-                            >
-                                Remove
-                            </MagneticButton>
+                                <MagneticButton
+                                    onClick={(e) => handleDelete(e, selectedItem.imdb_id, selectedItem.name)}
+                                    className="flex-1 py-3 bg-[var(--bg-card)] hover:bg-red-600/30 border border-[var(--border-color)] rounded-xl transition-colors"
+                                >
+                                    Remove
+                                </MagneticButton>
+                            </div>
                         </div>
                     </div>
                 </div>

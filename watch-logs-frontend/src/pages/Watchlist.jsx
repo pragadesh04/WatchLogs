@@ -1,11 +1,13 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchWatchlist, deleteFromWatchlist, addToCompleted } from '../services/api';
+import { fetchWatchlist, deleteFromWatchlist, moveToWatching, moveToCompleted } from '../services/api';
 import { useSettingsStore, getGridCols, getPosterUrl } from '../stores/settingsStore';
+import { useUniverseStore } from '../stores/universeStore';
 import { useStatsStore } from '../stores/statsStore';
 import { SkeletonGrid } from '../components/SkeletonCard';
 import { useToast } from '../components/ToastProvider';
 import SentientCard from '../components/SentientCard';
+import AnimeCard from '../components/AnimeCard';
 import CastChips from '../components/CastChips';
 import MagneticButton from '../components/MagneticButton';
 import gsap from 'gsap';
@@ -24,27 +26,30 @@ export default function Watchlist() {
     const [searchTerm, setSearchTerm] = useState('');
     const [appliedSearch, setAppliedSearch] = useState('');
     const [sortBy, setSortBy] = useState('date_added');
+    const [animeSubTab, setAnimeSubTab] = useState('all');
     const gridRef = useRef(null);
     const modalRef = useRef(null);
     const backdropRef = useRef(null);
+    const { universe } = useUniverseStore();
     const { gridSize, showImages } = useSettingsStore();
-    const { incrementWatched } = useStatsStore();
+    const { updateFromLists } = useStatsStore();
     const { showToast } = useToast();
-    const lastY = useRef(0);
 
-    const loadData = useCallback(async (search = '') => {
+    const loadData = async (search = '') => {
         try {
             const res = await fetchWatchlist('date_added', 'desc', null, search);
-            setItems(res.data || []);
+            const data = res.data || [];
+            setItems(data);
+            updateFromLists(data, [], []);
         } catch (err) {
             console.error('Failed to fetch watchlist:', err);
         }
         setLoading(false);
-    }, []);
+    };
 
     useEffect(() => {
         loadData();
-    }, [loadData]);
+    }, []);
 
     useEffect(() => {
         if (!loading && items.length > 0) {
@@ -57,33 +62,14 @@ export default function Watchlist() {
         }
     }, [items, loading]);
 
-    useEffect(() => {
-        const handleTouchStart = (e) => {
-            lastY.current = e.touches[0].clientY;
-        };
-
-        const handleTouchMove = async (e) => {
-            const currentY = e.touches[0].clientY;
-            const diff = lastY.current - currentY;
-
-            if (diff > 50 && window.scrollY < 50) {
-                setLoading(true);
-                await loadData(appliedSearch);
-                setLoading(false);
-            }
-        };
-
-        window.addEventListener('touchstart', handleTouchStart);
-        window.addEventListener('touchmove', handleTouchMove);
-
-        return () => {
-            window.removeEventListener('touchstart', handleTouchStart);
-            window.removeEventListener('touchmove', handleTouchMove);
-        };
-    }, [appliedSearch]);
-
     const filteredAndSorted = useMemo(() => {
         let result = [...items];
+
+        if (universe === 'anime') {
+            result = result.filter(item => item.content_type === 'anime_movie' || item.content_type === 'anime_tv');
+        } else {
+            result = result.filter(item => item.content_type === 'movie' || item.content_type === 'tv' || item.content_type === 'series');
+        }
 
         if (appliedSearch) {
             const term = appliedSearch.toLowerCase();
@@ -93,6 +79,12 @@ export default function Watchlist() {
                 const director = (item.director || '').toLowerCase();
                 return name.includes(term) || cast.includes(term) || director.includes(term);
             });
+        }
+
+        if (universe === 'anime' && animeSubTab !== 'all') {
+            result = result.filter(item =>
+                animeSubTab === 'tv' ? item.content_type === 'anime_tv' : item.content_type === 'anime_movie'
+            );
         }
 
         result.sort((a, b) => {
@@ -109,7 +101,7 @@ export default function Watchlist() {
         });
 
         return result;
-    }, [items, appliedSearch, sortBy]);
+    }, [items, universe, appliedSearch, sortBy, animeSubTab]);
 
     const handleSearchSubmit = (e) => {
         if (e.key === 'Enter') {
@@ -167,32 +159,41 @@ export default function Watchlist() {
         setTimeout(() => setSelectedItem(null), 300);
     };
 
-    const handleDelete = async (e, imdbId, name) => {
+    const handleMoveToWatching = async (e, imdbId, name) => {
         e.stopPropagation();
         try {
-            await deleteFromWatchlist(imdbId);
+            await moveToWatching(imdbId);
             setItems(items.filter(item => item.imdb_id !== imdbId));
-            showToast(`Removed "${name}" from Watchlist`, 'success');
+            showToast(`Moved "${name}" to Watching`, 'success');
+            closeModal();
         } catch (err) {
-            console.error('Failed to delete:', err);
+            console.error('Failed to move to watching:', err);
         }
     };
 
     const handleMoveToCompleted = async (e, imdbId, name) => {
         e.stopPropagation();
         try {
-            await addToCompleted(imdbId);
+            await moveToCompleted(imdbId);
             setItems(items.filter(item => item.imdb_id !== imdbId));
-            closeModal();
-            incrementWatched();
             showToast(`Moved "${name}" to Completed`, 'success');
+            closeModal();
         } catch (err) {
             console.error('Failed to move to completed:', err);
         }
     };
 
-    const movies = filteredAndSorted.filter(i => i.content_type === 'movie');
-    const series = filteredAndSorted.filter(i => i.content_type === 'tv' || i.content_type === 'series');
+    const handleDelete = async (e, imdbId, name) => {
+        e.stopPropagation();
+        try {
+            await deleteFromWatchlist(imdbId);
+            setItems(items.filter(item => item.imdb_id !== imdbId));
+            showToast(`Removed "${name}" from Watchlist`, 'success');
+            closeModal();
+        } catch (err) {
+            console.error('Failed to delete:', err);
+        }
+    };
 
     if (loading) {
         return (
@@ -207,13 +208,13 @@ export default function Watchlist() {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen pb-20 px-4">
                 <svg className="w-20 h-20 text-gray-600 mb-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z" />
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
                 </svg>
                 <h2 className="text-xl font-semibold mb-2">Your Watchlist is Empty</h2>
-                <p className="text-[var(--text-secondary)] mb-6">Add movies you want to watch later</p>
+                <p className="text-[var(--text-secondary)] mb-6">Add movies and shows to watch later</p>
                 <Link
                     to="/"
-                    className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                    className="px-6 py-3 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-lg transition-colors"
                 >
                     Browse Trending
                 </Link>
@@ -232,12 +233,12 @@ export default function Watchlist() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                     onKeyDown={handleSearchSubmit}
                     placeholder="Search... (press Enter to apply)"
-                    className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-red-500/50 transition-colors"
+                    className="flex-1 px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-primary)/50] transition-colors"
                 />
                 <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
-                    className="px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-red-500/50"
+                    className="px-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)/50]"
                 >
                     <option value="date_added">Date Added</option>
                     <option value="title">Title</option>
@@ -246,43 +247,29 @@ export default function Watchlist() {
                 </select>
             </div>
 
-            <div ref={gridRef}>
-                {movies.length > 0 && (
-                    <>
-                        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                            <span className="text-red-500">●</span> Movies
-                            <span className="text-sm text-[var(--text-secondary)]">({movies.length})</span>
-                        </h2>
-                        <div className={`grid ${getGridCols(gridSize)} gap-4 mb-6`}>
-                            {movies.map((item) => (
-                                <div key={item.id} className="sentient-card">
-                                    <SentientCard
-                                        item={item}
-                                        onClick={() => handleItemClick(item)}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
+            {universe === 'anime' && (
+                <div className="flex gap-2 mb-4">
+                    <button onClick={() => setAnimeSubTab('all')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'all' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>All</button>
+                    <button onClick={() => setAnimeSubTab('tv')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'tv' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>TV</button>
+                    <button onClick={() => setAnimeSubTab('movie')} className={`px-4 py-2 rounded-lg transition-colors ${animeSubTab === 'movie' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border-color)]'}`}>Movies</button>
+                </div>
+            )}
 
-                {series.length > 0 && (
-                    <>
-                        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                            <span className="text-blue-500">●</span> TV Series
-                            <span className="text-sm text-[var(--text-secondary)]">({series.length})</span>
-                        </h2>
-                        <div className={`grid ${getGridCols(gridSize)} gap-4`}>
-                            {series.map((item) => (
-                                <div key={item.id} className="sentient-card">
-                                    <SentientCard
-                                        item={item}
-                                        onClick={() => handleItemClick(item)}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </>
+            <div ref={gridRef}>
+                {filteredAndSorted.length > 0 && (
+                    <div className={`grid ${getGridCols(gridSize)} gap-4`}>
+                        {filteredAndSorted.map((item) => (
+                            <div key={item.id}>
+                                {universe === 'anime' ? (
+                                    <AnimeCard anime={item} />
+                                ) : (
+                                    <div onClick={() => handleItemClick(item)} className="cursor-pointer">
+                                        <SentientCard item={item} />
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 )}
             </div>
 
@@ -309,17 +296,17 @@ export default function Watchlist() {
                                 <div>
                                     <h2 className="text-2xl font-bold">{selectedItem.name}</h2>
                                     <p className="text-[var(--text-secondary)] text-sm mt-1">
-                                        {selectedItem.content_type === 'tv' ? 'TV Series' : 'Movie'}
+                                        {selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' || selectedItem.content_type === 'anime_tv' ? 'TV Series' : 'Movie'}
                                         {selectedItem.release_date && ` • ${new Date(selectedItem.release_date).getFullYear()}`}
                                         {selectedItem.rating && ` • ★ ${selectedItem.rating}`}
-                                        {selectedItem.content_type !== 'tv' && selectedItem.total_runtime && ` • ${formatRuntime(selectedItem.total_runtime)}`}
-                                        {selectedItem.content_type === 'tv' && (selectedItem.total_seasons || selectedItem.total_episodes) && (
+                                        {(selectedItem.content_type === 'tv' || selectedItem.content_type === 'series' || selectedItem.content_type === 'anime_tv') && (selectedItem.total_seasons || selectedItem.total_episodes) && (
                                             <span className="ml-2">
                                                 {selectedItem.total_seasons ? `${selectedItem.total_seasons} Season${selectedItem.total_seasons > 1 ? 's' : ''}` : ''}
                                                 {selectedItem.total_seasons && selectedItem.total_episodes ? ' • ' : ''}
                                                 {selectedItem.total_episodes ? `${selectedItem.total_episodes} Episodes` : ''}
                                             </span>
                                         )}
+                                        {selectedItem.content_type !== 'tv' && selectedItem.content_type !== 'series' && selectedItem.content_type !== 'anime_tv' && selectedItem.total_runtime && ` • ${formatRuntime(selectedItem.total_runtime)}`}
                                     </p>
                                     {selectedItem.cast && <CastChips cast={Array.isArray(selectedItem.cast) ? selectedItem.cast : selectedItem.cast.split(',').filter(Boolean)} />}
                                     {selectedItem.directors && selectedItem.directors.length > 0 && (
@@ -328,7 +315,7 @@ export default function Watchlist() {
                                 </div>
                             </div>
 
-                            <p className="text-[var(--text-secondary)] leading-relaxed">{selectedItem.overview || 'No overview available.'}</p>
+                            <p className="text-[var(--text-secondary)] leading-relaxed mb-4">{selectedItem.overview || 'No overview available.'}</p>
 
                             {selectedItem.release_date && new Date(selectedItem.release_date) > new Date() && (
                                 <div className="mt-4 px-3 py-2 bg-red-600/20 border border-red-500/30 rounded-lg flex items-center gap-2">
@@ -339,23 +326,20 @@ export default function Watchlist() {
 
                             <div className="flex gap-3 mt-6">
                                 <MagneticButton
-                                    onClick={closeModal}
-                                    className="flex-1 py-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl"
+                                    onClick={(e) => handleMoveToWatching(e, selectedItem.imdb_id, selectedItem.name)}
+                                    className="flex-1 py-3 bg-blue-600/90 hover:bg-blue-700 rounded-xl"
                                 >
-                                    Close
+                                    Move to Watching
                                 </MagneticButton>
                                 <MagneticButton
                                     onClick={(e) => handleMoveToCompleted(e, selectedItem.imdb_id, selectedItem.name)}
-                                    className="flex-1 py-3 bg-green-600/90 hover:bg-green-700 rounded-xl flex items-center justify-center gap-2"
+                                    className="flex-1 py-3 bg-green-600/90 hover:bg-green-700 rounded-xl"
                                 >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
                                     Completed
                                 </MagneticButton>
                                 <MagneticButton
                                     onClick={(e) => handleDelete(e, selectedItem.imdb_id, selectedItem.name)}
-                                    className="flex-1 py-3 bg-red-600/90 hover:bg-red-700 rounded-xl"
+                                    className="flex-1 py-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl"
                                 >
                                     Remove
                                 </MagneticButton>

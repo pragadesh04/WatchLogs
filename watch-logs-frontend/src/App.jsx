@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Header from './components/Header';
 import Navbar from './components/Navbar';
@@ -11,6 +12,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import SharedList from './pages/SharedList';
 import { useAuthStore } from './stores/authStore';
+import { useUniverseStore } from './stores/universeStore';
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -29,6 +31,12 @@ function PublicOnlyRoute({ children }) {
 }
 
 function App() {
+  const universe = useUniverseStore((state) => state.universe);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-universe', universe);
+  }, [universe]);
+
   return (
     <BrowserRouter>
       <ThemeProvider>

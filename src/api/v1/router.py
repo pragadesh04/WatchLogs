@@ -10,6 +10,7 @@ from api.v1.endpoints import (
     progress,
     share,
     details,
+    anime,
 )
 
 api_router = APIRouter()
@@ -23,3 +24,4 @@ api_router.include_router(completed.router)
 api_router.include_router(progress.router)
 api_router.include_router(share.router)
 api_router.include_router(details.router)
+api_router.include_router(anime.router)
