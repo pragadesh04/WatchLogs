@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getTrendingMovies, getTrendingTV, searchByName } from '../services/api';
 import { getTrendingAnime, searchAnime } from '../services/api';
 import MovieCard from '../components/MovieCard';
