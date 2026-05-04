@@ -62,13 +62,13 @@ api.interceptors.response.use(
   }
 );
 
-export const register = (email, password) => 
+export const register = (email, password) =>
   api.post('/auth/register', { email, password });
 
-export const login = (email, password) => 
+export const login = (email, password) =>
   api.post('/auth/login', { email, password });
 
-export const logout = () => 
+export const logout = () =>
   api.post('/auth/logout');
 
 export const getTrendingMovies = () => api.get('/trending/movie');
@@ -76,19 +76,29 @@ export const getTrendingTV = () => api.get('/trending/tv');
 export const searchByName = (q, contentType = 'all') => api.get(`/search?q=${encodeURIComponent(q)}${contentType !== 'all' ? `&content_type=${contentType}` : ''}`);
 export const getImdbId = (movieId, contentType) => api.get(`/details/imdb-id/${movieId}/${contentType}`);
 
-export const addToWatchlist = (imdbId, contentType = 'movie') => 
-  api.post(`/watchlist?content_type=${contentType}`, { imdb_id: imdbId });
-export const addToWatching = (imdbId, timeStamp, notes, type = 'movie') => 
-  api.post(`/watching?imdb_id=${imdbId}&type=${type}`, { time_stamp: timeStamp, notes, type });
-export const addToCompleted = (imdbId, contentType = 'movie') => 
-  api.post(`/completed?content_type=${contentType}`, { imdb_id: imdbId });
+export const addToWatchlist = (imdbId, contentType = 'movie') => {
+  return api.post(`/watchlist?content_type=${contentType}`, { imdb_id: imdbId });
+}
 
-export const fetchWatchlist = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => 
-  api.get('/watchlist', { params: { sort_by: sortBy, order, content_type: contentType, search } });
-export const fetchWatching = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => 
-  api.get('/watching', { params: { sort_by: sortBy, order, content_type: contentType, search } });
-export const fetchCompleted = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => 
-  api.get('/completed', { params: { sort_by: sortBy, order, content_type: contentType, search } });
+export const addToWatching = (imdbId, timeStamp, notes, type = 'movie') => {
+  return api.post(`/watching?imdb_id=${imdbId}&type=${type}`, { time_stamp: timeStamp, notes, type });
+}
+
+export const addToCompleted = (imdbId, contentType = 'movie') => {
+  return api.post(`/completed?content_type=${contentType}`, { imdb_id: imdbId });
+}
+
+export const fetchWatchlist = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => {
+  return api.get('/watchlist', { params: { sort_by: sortBy, order, content_type: contentType, search } });
+}
+
+export const fetchWatching = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => {
+  return api.get('/watching', { params: { sort_by: sortBy, order, content_type: contentType, search } });
+}
+
+export const fetchCompleted = (sortBy = 'date_added', order = 'desc', contentType = null, search = null) => {
+  return api.get('/completed', { params: { sort_by: sortBy, order, content_type: contentType, search } });
+}
 
 export const deleteFromWatchlist = (imdbId) => api.delete(`/watchlist/${imdbId}`);
 export const deleteFromWatching = (imdbId) => api.delete(`/watching/${imdbId}`);
@@ -115,7 +125,7 @@ export const updateWatchingProgress = (imdbId, timeStamp, currentSeason, current
   });
 };
 
-export const getSeriesMetadata = (imdbId) => 
+export const getSeriesMetadata = (imdbId) =>
   api.get(`/details/series-metadata/${imdbId}`);
 
 export const getTrendingAnime = (type = 'all') =>
@@ -130,7 +140,7 @@ export const getAnimeDetails = (malId) =>
 export const getAnimeEpisodes = (malId, page = 1) =>
   api.get(`/anime/episodes/${malId}`, { params: { page } });
 
-export const createSharedList = (listTypes, expirationDays = null) => 
+export const createSharedList = (listTypes, expirationDays = null) =>
   api.post('/share/create', { list_types: listTypes, expiration_days: expirationDays });
 
 export const getSharedList = (code) => api.get(`/share/${code}`);

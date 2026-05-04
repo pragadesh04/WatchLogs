@@ -31,7 +31,7 @@ MAX_TIMES = 32
 
 class MoviesService:
     def __init__(self):
-        self.headers = {"Authorization": f"Bearer {config.TMDB_API}"}
+        self.api_params = {"api_key": config.TMDB_API}
 
     @retry(
         stop=stop_after_attempt(ATTEMPT_TIMES),
@@ -43,10 +43,10 @@ class MoviesService:
 
         async with httpx.AsyncClient() as client:
             movie_res = await client.get(
-                f"{url}search/movie", params={"query": q}, headers=self.headers
+                f"{url}search/movie", params={"query": q, **self.api_params}
             )
             tv_res = await client.get(
-                f"{url}search/tv", params={"query": q}, headers=self.headers
+                f"{url}search/tv", params={"query": q, **self.api_params}
             )
 
             movie_results = movie_res.json().get("results", [])
@@ -105,7 +105,7 @@ class MoviesService:
 
         async with httpx.AsyncClient() as client:
             res = await client.get(
-                f"{url}discover/{type_name}", params=params, headers=self.headers
+                f"{url}discover/{type_name}", params={**params, **self.api_params}
             )
             datas = res.json()
             return datas
@@ -120,7 +120,7 @@ class MoviesService:
 
         async with httpx.AsyncClient() as client:
             res = await client.get(
-                f"{url}find/{imdb_id}?external_source=imdb_id", headers=self.headers
+                f"{url}find/{imdb_id}", params={"external_source": "imdb_id", **self.api_params}
             )
             try:
                 data = await helpers.format_tmdb_data(
@@ -144,8 +144,7 @@ class MoviesService:
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{url}discover/{tmdb_type}",
-                params={"sort_by": "popularity.desc", "year": year, "page": 1},
-                headers=self.headers,
+                params={"sort_by": "popularity.desc", "year": year, "page": 1, **self.api_params},
             )
             data = response.json()
             results = data.get("results", [])[:25]
@@ -162,7 +161,7 @@ class MoviesService:
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{url}{tmdb_type}/{tmdb_id}", headers=self.headers
+                f"{url}{tmdb_type}/{tmdb_id}", params=self.api_params
             )
             data = response.json()
             return data.get("imdb_id")
@@ -269,7 +268,7 @@ class MoviesService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{url}trending/{type_name}/week",
-                    headers=self.headers,
+                    params=self.api_params,
                 )
                 data = (response.json()).get("results", [])
                 data = await helpers.format_tmdb_datas(data)
@@ -334,16 +333,18 @@ class MoviesService:
         retry=retry_if_exception_type(httpx.ConnectError),
     )
     async def get_imdb_id(self, id: int, type_name: str):
-        url = f"https://api.themoviedb.org/3/tv/{id}/external_ids"
         type_name = await helpers.get_tmdb_type(type_name)
+        url = f"https://api.themoviedb.org/3/{type_name}/{id}/external_ids"
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url=f"{url}", headers=self.headers)
+                response = await client.get(
+                    url=url, params={"api_key": config.TMDB_API}
+                )
                 data = response.json()
                 url = config.TMDB_URL
                 if not data.get("success", True):
                     response = await client.get(
-                        f"{url}{type_name}/{id}", headers=self.headers
+                        f"{url}{type_name}/{id}", params=self.api_params
                     )
                     data = response.json()
                 return data.get("imdb_id", None)
@@ -361,7 +362,7 @@ class MoviesService:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    url=f"{url}{type_name}/{id}", headers=self.headers
+                    url=f"{url}{type_name}/{id}", params=self.api_params
                 )
                 data = response.json()
                 return data
@@ -379,7 +380,7 @@ class MoviesService:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    url=f"{url}{type_name}/{id}/credits", headers=self.headers
+                    url=f"{url}{type_name}/{id}/credits", params=self.api_params
                 )
                 return response.json()
         except httpx.ConnectError as e:
@@ -562,28 +563,24 @@ class MoviesService:
         Fetch exact season and episode metadata from TMDB using IMDB ID.
         Replaces old 'averaging' logic.
         """
-        headers = {"Authorization": f"Bearer {config.TMDB_API}"}
         url = config.TMDB_URL
         
         async with httpx.AsyncClient() as client:
-            # 1. Find TMDB TV ID from IMDB ID
-            res = await client.get(f"{url}find/{imdb_id}?external_source=imdb_id", headers=headers)
+            res = await client.get(f"{url}find/{imdb_id}", params={"external_source": "imdb_id", **self.api_params})
             tv_results = res.json().get('tv_results', [])
             if not tv_results:
                 return {"status": "error", "message": "TV series not found"}
             
             tv_id = tv_results[0].get('id', 0)
             
-            # 2. Get total seasons and episodes
-            res = await client.get(f"{url}tv/{tv_id}", headers=headers)
+            res = await client.get(f"{url}tv/{tv_id}", params=self.api_params)
             datas = res.json()
             number_of_season = datas.get('number_of_seasons', 0)
             
-            # 3. Fetch each season's breakdown concurrently
             import asyncio
             async def fetch_season(season_num):
                 try:
-                    res = await client.get(f"{url}tv/{tv_id}/season/{season_num}", headers=headers)
+                    res = await client.get(f"{url}tv/{tv_id}/season/{season_num}", params=self.api_params)
                     episodes = res.json().get('episodes', [])
                     
                     return {

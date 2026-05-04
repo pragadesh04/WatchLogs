@@ -4,6 +4,7 @@ import Header from './components/Header';
 import Navbar from './components/Navbar';
 import ToastProvider from './components/ToastProvider';
 import ThemeProvider from './components/ThemeProvider';
+import UniverseTransition from './components/UniverseTransition';
 import Home from './pages/Home';
 import Watchlist from './pages/Watchlist';
 import Watching from './pages/Watching';
@@ -11,6 +12,7 @@ import Completed from './pages/Completed';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import SharedList from './pages/SharedList';
+import MovieInfo from './pages/MovieInfo';
 import { useAuthStore } from './stores/authStore';
 import { useUniverseStore } from './stores/universeStore';
 
@@ -41,7 +43,8 @@ function App() {
     <BrowserRouter>
       <ThemeProvider>
         <ToastProvider>
-          <div className="min-h-screen bg-[var(--bg-primary)]">
+          <UniverseTransition />
+          <div className="min-h-screen bg-[var(--bg-primary)] pb-16">
             <Header />
             <Routes>
               <Route path="/" element={<Home />} />
@@ -60,9 +63,13 @@ function App() {
                 path="/completed" 
                 element={<ProtectedRoute><Completed /></ProtectedRoute>} 
               />
+              <Route 
+                path="/info/:id" 
+                element={<MovieInfo />} 
+              />
             </Routes>
-            <Navbar />
           </div>
+          <Navbar />
         </ToastProvider>
       </ThemeProvider>
     </BrowserRouter>

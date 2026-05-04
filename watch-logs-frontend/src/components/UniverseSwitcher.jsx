@@ -2,7 +2,7 @@ import { useUniverseStore } from '../stores/universeStore';
 import { useEffect, useRef, useState } from 'react';
 
 export default function UniverseSwitcher() {
-  const { universe, setUniverse } = useUniverseStore();
+  const { universe, setUniverse, triggerRipple } = useUniverseStore();
   const [pillStyle, setPillStyle] = useState({});
   const containerRef = useRef(null);
 
@@ -21,6 +21,14 @@ export default function UniverseSwitcher() {
     }
   }, [universe]);
 
+  const handleClick = (e, newUniverse) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left + rect.left;
+    const y = e.clientY - rect.top + rect.top;
+    triggerRipple(x, y, newUniverse);
+    setTimeout(() => setUniverse(newUniverse), 50);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -33,7 +41,7 @@ export default function UniverseSwitcher() {
       />
       <button
         data-option="cinema"
-        onClick={() => setUniverse('cinema')}
+        onClick={(e) => handleClick(e, 'cinema')}
         className={`relative z-10 px-3 h-full text-xs font-medium transition-colors duration-300 cursor-pointer flex items-center gap-1 ${
           universe === 'cinema' ? 'text-white' : 'text-gray-400 hover:text-white'
         }`}
@@ -42,7 +50,7 @@ export default function UniverseSwitcher() {
       </button>
       <button
         data-option="anime"
-        onClick={() => setUniverse('anime')}
+        onClick={(e) => handleClick(e, 'anime')}
         className={`relative z-10 px-3 h-full text-xs font-medium transition-colors duration-300 cursor-pointer flex items-center gap-1 ${
           universe === 'anime' ? 'text-white' : 'text-gray-400 hover:text-white'
         }`}

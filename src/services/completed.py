@@ -4,8 +4,10 @@ import logging
 from db.database import db
 from utils.helpers import HelperFunctions
 from services.movies import MoviesService
+from services.anime import AnimeService
 
 movie_service = MoviesService()
+anime_service = AnimeService()
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -16,42 +18,63 @@ class CompletedService:
     async def add_to_completed(
         self, imdb_id: str, content_type: str = "movie", user_id: str = None
     ):
-        new_data = await movie_service.search_by_id(imdb_id, content_type)
+        # Handle anime content types (MAL IDs)
+        if content_type in ("anime_tv", "anime_movie"):
+            mal_id = imdb_id.replace("mal_", "") if imdb_id.startswith("mal_") else imdb_id
+            anime_data = await anime_service.get_anime_details(int(mal_id))
+            if not anime_data:
+                return {"status": "Failed", "message": "Anime not found"}
+            # Normalize anime data
+            genres_list = anime_data.get("genres", [])
+            new_data = {
+                "imdb_id": imdb_id,
+                "name": anime_data.get("title"),
+                "poster_url": anime_data.get("images", {}).get("jpg", {}).get("large_image_url"),
+                "overview": anime_data.get("synopsis"),
+                "release_date": anime_data.get("aired", {}).get("from", "")[:10],
+                "vote_average": anime_data.get("score"),
+                "genres": [g["name"] if isinstance(g, dict) else str(g) for g in genres_list],
+                "total_episodes": anime_data.get("episodes"),
+                "content_type": content_type,
+            }
+        else:
+            new_data = await movie_service.search_by_id(imdb_id, content_type)
 
-        if new_data.get("status", False):
-            return {"status": "Failed", "message": "Movie not yet released"}
+        if content_type not in ("anime_tv", "anime_movie"):
+            if new_data.get("status", False):
+                return {"status": "Failed", "message": "Movie not yet released"}
 
-        tmdb_id = new_data.get("id")
-        if tmdb_id:
-            details = await movie_service.get_details_overview(tmdb_id, content_type)
-            new_data["genres"] = [g["name"] for g in details.get("genres", [])]
-            new_data["total_runtime"] = details.get("runtime") or (
-                details.get("episode_run_time", [0])[0]
-                if details.get("episode_run_time")
-                else 0
-            )
-            new_data["release_date"] = details.get("release_date") or details.get(
-                "first_air_date"
-            )
-            new_data["vote_average"] = (
-                round(details.get("vote_average", 0), 1)
-                if details.get("vote_average")
-                else None
-            )
-            new_data["total_episodes"] = details.get("number_of_episodes")
-            new_data["total_seasons"] = details.get("number_of_seasons")
+            tmdb_id = new_data.get("id")
+            if tmdb_id:
+                details = await movie_service.get_details_overview(tmdb_id, content_type)
+                new_data["genres"] = [g["name"] for g in details.get("genres", [])]
+                new_data["total_runtime"] = details.get("runtime") or (
+                    details.get("episode_run_time", [0])[0]
+                    if details.get("episode_run_time")
+                    else 0
+                )
+                new_data["release_date"] = details.get("release_date") or details.get(
+                    "first_air_date"
+                )
+                new_data["vote_average"] = (
+                    round(details.get("vote_average", 0), 1)
+                    if details.get("vote_average")
+                    else None
+                )
+                new_data["total_episodes"] = details.get("number_of_episodes")
+                new_data["total_seasons"] = details.get("number_of_seasons")
 
-            # Fetch cast and directors
-            try:
-                credits = await movie_service.get_credits(tmdb_id, content_type)
-                new_data["cast"] = [p["name"] for p in credits.get("cast", [])[:5]]
-                new_data["directors"] = [
-                    p["name"] for p in credits.get("crew", []) if p["job"] == "Director"
-                ]
-            except Exception as e:
-                logger.warning(f"Failed to fetch credits for {tmdb_id}: {e}")
-                new_data["cast"] = []
-                new_data["directors"] = []
+                # Fetch cast and directors
+                try:
+                    credits = await movie_service.get_credits(tmdb_id, content_type)
+                    new_data["cast"] = [p["name"] for p in credits.get("cast", [])[:5]]
+                    new_data["directors"] = [
+                        p["name"] for p in credits.get("crew", []) if p["job"] == "Director"
+                    ]
+                except Exception as e:
+                    logger.warning(f"Failed to fetch credits for {tmdb_id}: {e}")
+                    new_data["cast"] = []
+                    new_data["directors"] = []
 
         try:
             exists_watching = await helpers.check_id_exists_for_user(

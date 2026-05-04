@@ -81,7 +81,7 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded, showP
     }, [showOverview]);
 
     const handleClick = () => {
-        setShowOverview(true);
+        navigate(`/info/${movie.id}`, { state: { movie } });
     };
 
     const handleInfoToggle = (e) => {
@@ -147,7 +147,7 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded, showP
 
                 {/* Upcoming badge */}
                 {movie.release_date && new Date(movie.release_date) > new Date() && (
-                    <div className="absolute top-3 right-3 px-2.5 py-1 bg-red-600 text-white text-xs font-bold rounded-full pulse-badge z-10 shadow-lg">
+                    <div className="absolute top-3 right-3 px-2.5 py-1 bg-[var(--accent-primary)] text-white text-xs font-bold rounded-full pulse-badge z-10 shadow-lg">
                         UPCOMING
                     </div>
                 )}
@@ -156,7 +156,7 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded, showP
                 {showProgress && (
                     <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-gray-800/80 backdrop-blur-sm">
                         <div
-                            className="h-full bg-gradient-to-r from-red-500 to-red-400 progress-neon transition-all duration-500"
+                            className="h-full bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-hover)] progress-neon transition-all duration-500"
                             style={{ width: `${Math.min(progress, 100)}%` }}
                         />
                     </div>
@@ -210,8 +210,8 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded, showP
                             <MagneticButton
                                 onClick={(e) => { e.stopPropagation(); handleAdd('watchlist'); }}
                                 disabled={loading}
-                                className="w-full py-2 bg-blue-600/90 hover:bg-blue-700 rounded-lg text-xs font-medium flex items-center justify-center gap-1 disabled:opacity-50 shadow-lg"
-                            >
+                                className="w-full py-2 bg-[var(--accent-muted,blue-600/90)] hover:opacity-90 rounded-lg text-xs font-medium flex items-center justify-center gap-1 disabled:opacity-50 shadow-lg"
+                             >
                                 {loadingAction === 'watchlist' ? (
                                     <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -227,8 +227,8 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded, showP
                             <MagneticButton
                                 onClick={(e) => { e.stopPropagation(); handleAdd('watching'); }}
                                 disabled={loading}
-                                className="w-full py-2 bg-yellow-600/90 hover:bg-yellow-700 rounded-lg text-xs font-medium flex items-center justify-center gap-1 disabled:opacity-50 shadow-lg"
-                            >
+                                className="w-full py-2 bg-[var(--accent-secondary,yellow-600/90)] hover:opacity-90 rounded-lg text-xs font-medium flex items-center justify-center gap-1 disabled:opacity-50 shadow-lg"
+                             >
                                 {loadingAction === 'watching' ? (
                                     <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -244,8 +244,8 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded, showP
                             <MagneticButton
                                 onClick={(e) => { e.stopPropagation(); handleAdd('completed'); }}
                                 disabled={loading}
-                                className="w-full py-2 bg-green-600/90 hover:bg-green-700 rounded-lg text-xs font-medium flex items-center justify-center gap-1 disabled:opacity-50 shadow-lg"
-                            >
+                                className="w-full py-2 bg-[var(--accent-secondary,green-600/90)] hover:opacity-90 rounded-lg text-xs font-medium flex items-center justify-center gap-1 disabled:opacity-50 shadow-lg"
+                             >
                                 {loadingAction === 'completed' ? (
                                     <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -296,73 +296,6 @@ export default function MovieCard({ movie, contentType = 'movie', onAdded, showP
                 </div>
             </div>
 
-            {/* Overview Modal */}
-            {showOverview && (
-                <div
-                    className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-                    onClick={() => setShowOverview(false)}
-                >
-                    <div
-                        className="glass noise-overlay rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto custom-scrollbar"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="p-6">
-                            <div className="flex gap-4 mb-4">
-                                <img
-                                    src={posterUrl}
-                                    alt={title}
-                                    className="w-32 h-48 object-cover rounded-lg shadow-lg"
-                                    onError={(e) => { e.target.src = 'https://placehold.co/500x750/png?text=No+Poster'; }}
-                                />
-                                <div>
-                                    <h2 className="text-2xl font-bold">{title}</h2>
-                                    <p className="text-sm text-[var(--text-secondary)] mt-1">
-                                        {contentTypeLabel}
-                                        {movie.release_date && ` • ${new Date(movie.release_date).getFullYear()}`}
-                                        {movie.rating && ` • ★ ${movie.rating}`}
-                                        {movie.content_type !== 'tv' && runtime && ` • ${formatRuntime(runtime)}`}
-                                        {movie.content_type === 'tv' && (seasonCount || episodeCount) && (
-                                            <span className="ml-2">
-                                                {seasonCount ? `${seasonCount} Season${seasonCount > 1 ? 's' : ''}` : ''}
-                                                {seasonCount && episodeCount ? ' • ' : ''}
-                                                {episodeCount ? `${episodeCount} Episodes` : ''}
-                                            </span>
-                                        )}
-                                    </p>
-                                    {movie.cast && <CastChips cast={Array.isArray(movie.cast) ? movie.cast : movie.cast.split(',').filter(Boolean)} />}
-                                    {movie.directors && movie.directors.length > 0 && (
-                                        <p className="text-gray-400 text-xs mt-1">Director(s): {Array.isArray(movie.directors) ? movie.directors.join(', ') : movie.directors}</p>
-                                    )}
-                                </div>
-                            </div>
-
-                            <p className="text-[var(--text-secondary)] leading-relaxed">{overview}</p>
-
-                            {movie.release_date && new Date(movie.release_date) > new Date() && (
-                                <div className="mt-4 px-3 py-2 bg-red-600/20 border border-red-500/30 rounded-lg flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-red-500 rounded-full pulse-badge" />
-                                    <span className="text-red-400 text-sm font-medium">Upcoming • Releases {new Date(movie.release_date).toLocaleDateString()}</span>
-                                </div>
-                            )}
-
-                            <div className="flex gap-2 mt-6">
-                                <MagneticButton
-                                    onClick={() => { setShowOverview(false); setShowActions(true); }}
-                                    className="flex-1 py-3 bg-red-600/90 hover:bg-red-700 rounded-xl"
-                                >
-                                    Add to List
-                                </MagneticButton>
-                                <MagneticButton
-                                    onClick={() => setShowOverview(false)}
-                                    className="flex-1 py-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl"
-                                >
-                                    Close
-                                </MagneticButton>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </>
     );
 }

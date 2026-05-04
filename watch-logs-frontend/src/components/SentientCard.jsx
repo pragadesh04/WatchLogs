@@ -247,21 +247,21 @@ export default function SentientCard({ item, onClick, showProgress, progress }) 
                     </div>
                 )}
                 {item.release_date && new Date(item.release_date) > new Date() && (
-                    <div className="absolute top-3 right-3 px-2.5 py-1 bg-red-600 text-white text-xs font-bold rounded-full pulse-badge shadow-lg">
+                    <div className="absolute top-3 right-3 px-2.5 py-1 bg-[var(--accent-primary)] text-white text-xs font-bold rounded-full pulse-badge shadow-lg">
                         UPCOMING
                     </div>
                 )}
                 {showProgress && progress !== undefined && (
                     <div ref={progressRef} className="absolute bottom-0 left-0 right-0 h-2 bg-gray-900/80 backdrop-blur-sm">
                         <div
-                            className="h-full bg-gradient-to-r from-red-500 to-red-400 progress-neon transition-all duration-500 shadow-[0_0_10px_rgba(239,68,68,0.7)]"
+                            className="h-full bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-hover)] progress-neon transition-all duration-500"
                             style={{ width: `${Math.min(progress, 100)}%` }}
                         />
                     </div>
                 )}
                 {item.time_stamp && (
                     <div className="absolute bottom-2 left-0 right-0 px-3 flex justify-center">
-                        <span className="text-green-400 text-[10px] font-medium bg-black/60 px-2 py-0.5 rounded-full backdrop-blur-sm">
+                        <span className="text-[var(--accent-secondary,green-400)] text-[10px] font-medium bg-black/60 px-2 py-0.5 rounded-full backdrop-blur-sm">
                             {item.time_stamp}
                         </span>
                     </div>
